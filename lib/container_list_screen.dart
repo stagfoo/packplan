@@ -4,9 +4,11 @@ import 'container_detail_screen.dart';
 import 'diagram.dart';
 import 'edit_sheets.dart';
 import 'models.dart';
+import 'settings_screen.dart';
 import 'store.dart';
+import 'units.dart';
 
-/// The home screen: every container you have planned.
+/// The plans tab: every container you have set up.
 class ContainerListScreen extends StatelessWidget {
   const ContainerListScreen({super.key, required this.store});
 
@@ -18,7 +20,20 @@ class ContainerListScreen extends StatelessWidget {
       listenable: store,
       builder: (context, _) {
         return Scaffold(
-          appBar: AppBar(title: const Text('PackPlan')),
+          appBar: AppBar(
+            title: const Text('Plans'),
+            actions: [
+              IconButton(
+                tooltip: 'Settings',
+                icon: const Icon(Icons.settings_outlined),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => SettingsScreen(store: store),
+                  ),
+                ),
+              ),
+            ],
+          ),
           floatingActionButton: FloatingActionButton.extended(
             onPressed: () => _addContainer(context),
             icon: const Icon(Icons.add),
@@ -31,35 +46,36 @@ class ContainerListScreen extends StatelessWidget {
               : ListView.builder(
                   padding: const EdgeInsets.only(bottom: 88),
                   itemCount: store.containers.length,
-                  itemBuilder: (context, index) => _ContainerTile(
-                    container: store.containers[index],
-                    onOpen: () =>
-                        _open(context, store.containers[index]),
-                    onDelete: () =>
-                        _confirmDelete(context, store.containers[index]),
-                  ),
+                  itemBuilder: (context, index) {
+                    final container = store.containers[index];
+                    return _ContainerTile(
+                      plan: store.planFor(container.id)!,
+                      onOpen: () => _open(context, container.id),
+                      onDuplicate: () => store.duplicateContainer(container.id),
+                      onDelete: () => _confirmDelete(context, container),
+                    );
+                  },
                 ),
         );
       },
     );
   }
 
-  void _open(BuildContext context, GearContainer container) {
+  void _open(BuildContext context, String containerId) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (context) => ContainerDetailScreen(
           store: store,
-          containerId: container.id,
+          containerId: containerId,
         ),
       ),
     );
   }
 
   Future<void> _addContainer(BuildContext context) async {
-    final draft = await showGearEditSheet(
+    final draft = await showContainerSheet(
       context,
-      title: 'New container',
-      nameLabel: 'Container name',
+      defaultTolerance: store.settings.defaultTolerance,
     );
     if (draft == null) return;
 
@@ -68,25 +84,27 @@ class ContainerListScreen extends StatelessWidget {
       width: draft.width,
       height: draft.height,
       depth: draft.depth,
+      tolerance: draft.tolerance,
     );
 
     if (!context.mounted) return;
-    _open(context, container);
+    _open(context, container.id);
   }
 
   Future<void> _confirmDelete(
     BuildContext context,
     GearContainer container,
   ) async {
+    final count = container.entries.length;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Delete ${container.name}?'),
         content: Text(
-          container.goods.isEmpty
+          count == 0
               ? 'This cannot be undone.'
-              : 'Its ${container.goods.length} pieces of gear go with it. '
-                    'This cannot be undone.',
+              : 'The $count ${count == 1 ? 'piece' : 'pieces'} of gear in it '
+                    'stay in your library. This cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -107,28 +125,40 @@ class ContainerListScreen extends StatelessWidget {
 
 class _ContainerTile extends StatelessWidget {
   const _ContainerTile({
-    required this.container,
+    required this.plan,
     required this.onOpen,
+    required this.onDuplicate,
     required this.onDelete,
   });
 
-  final GearContainer container;
+  final Plan plan;
   final VoidCallback onOpen;
+  final VoidCallback onDuplicate;
   final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final unpacked = container.unpackedGoods.length;
+    final unit = UnitScope.of(context);
+    final container = plan.container;
+    final unpacked = plan.unpacked.length;
 
-    final dimensions = [
-      formatLength(container.width),
-      formatLength(container.height),
-      if (container.depth != null) formatLength(container.depth!),
-    ].join(' × ');
+    final fill = plan.volumeUsed ?? plan.areaUsed;
+    final count = plan.entries.length;
 
-    final volumeUsed = container.volumeUsed;
-    final fill = volumeUsed ?? container.areaUsed;
+    final notes = <String>[
+      formatDimensions(
+        unit,
+        width: container.width,
+        height: container.height,
+        depth: container.depth,
+      ),
+      '$count ${count == 1 ? 'item' : 'items'}',
+      '${(fill * 100).round()}% full',
+      if (container.tolerance > 0)
+        '${unit.formatWithSymbol(container.tolerance)} tolerance',
+      if (unpacked > 0) '$unpacked not packed',
+    ];
 
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
@@ -147,20 +177,23 @@ class _ContainerTile extends StatelessWidget {
         ),
         title: Text(container.name),
         subtitle: Text(
-          '$dimensions cm · ${container.goods.length} '
-          '${container.goods.length == 1 ? 'item' : 'items'} · '
-          '${(fill * 100).round()}% full'
-          '${unpacked > 0 ? ' · $unpacked not packed' : ''}',
+          notes.join(' · '),
           style: theme.textTheme.bodySmall?.copyWith(
             color: unpacked > 0
                 ? theme.colorScheme.error
                 : theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        trailing: IconButton(
-          tooltip: 'Delete',
-          icon: const Icon(Icons.delete_outline),
-          onPressed: onDelete,
+        trailing: PopupMenuButton<String>(
+          onSelected: (value) => switch (value) {
+            'duplicate' => onDuplicate(),
+            'delete' => onDelete(),
+            _ => null,
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
+            const PopupMenuItem(value: 'delete', child: Text('Delete')),
+          ],
         ),
       ),
     );
@@ -193,8 +226,8 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Add a pack, a dry bag or a pocket, then fill it with gear to '
-              'see what fits.',
+              'Add a pack, a dry bag or a pocket, then fill it with gear from '
+              'your library to see what fits.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,

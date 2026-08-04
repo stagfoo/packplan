@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 
 import 'diagram.dart';
 import 'edit_sheets.dart';
+import 'gear_library_screen.dart';
 import 'models.dart';
 import 'packer.dart';
 import 'store.dart';
+import 'units.dart';
 
 /// The diagram plus the gear list for one container.
 class ContainerDetailScreen extends StatefulWidget {
@@ -24,40 +26,58 @@ class ContainerDetailScreen extends StatefulWidget {
 }
 
 class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
-  String? _selectedGoodId;
+  String? _selectedEntryId;
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: widget.store,
       builder: (context, _) {
-        final container = widget.store.containerById(widget.containerId);
+        final plan = widget.store.planFor(widget.containerId);
 
         // The container can disappear if it was deleted from the list screen
         // while this route was still on the stack.
-        if (container == null) {
+        if (plan == null) {
           return const Scaffold(
             body: Center(child: Text('This container was deleted.')),
           );
         }
 
-        return _build(context, container);
+        return _build(context, plan);
       },
     );
   }
 
-  Widget _build(BuildContext context, GearContainer container) {
+  Widget _build(BuildContext context, Plan plan) {
     final theme = Theme.of(context);
-    final issues = findPlacementIssues(container);
+    final issues = findPlacementIssues(plan);
+    final noSpace = toleranceLeavesNoSpace(plan);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(container.name),
+        title: Text(plan.name),
         actions: [
           IconButton(
             tooltip: 'Edit container',
             icon: const Icon(Icons.straighten),
-            onPressed: () => _editContainer(container),
+            onPressed: () => _editContainer(plan),
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) => switch (value) {
+              'recipe' => _applyRecipe(plan),
+              'save-recipe' => _saveAsRecipe(plan),
+              _ => null,
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'recipe',
+                child: Text('Add from recipe'),
+              ),
+              const PopupMenuItem(
+                value: 'save-recipe',
+                child: Text('Save as recipe'),
+              ),
+            ],
           ),
         ],
       ),
@@ -70,7 +90,7 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
             // a fixed fraction — a wide, shallow pouch should not reserve half
             // the screen for empty space above and below it.
             final wanted = _diagramHeightFor(
-              container,
+              plan,
               constraints.maxWidth - horizontalPadding * 2,
             );
             final diagramHeight = wanted.clamp(
@@ -80,6 +100,12 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
 
             return Column(
               children: [
+                if (noSpace)
+                  _Banner(
+                    message:
+                        'The tolerance leaves no usable space in this '
+                        'container. Lower it or make the container bigger.',
+                  ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     horizontalPadding,
@@ -90,39 +116,38 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
                   child: SizedBox(
                     height: diagramHeight,
                     child: _Diagram(
-                      container: container,
+                      plan: plan,
                       issues: issues,
-                      selectedGoodId: _selectedGoodId,
-                      onSelected: (goodId) =>
-                          setState(() => _selectedGoodId = goodId),
+                      selectedEntryId: _selectedEntryId,
+                      onSelected: (entryId) =>
+                          setState(() => _selectedEntryId = entryId),
                       store: widget.store,
                     ),
                   ),
                 ),
-                if (container.placements.isNotEmpty)
+                if (plan.packed.isNotEmpty)
                   Text(
-                    container.isThreeDimensional
+                    plan.isThreeDimensional
                         ? 'Drag gear in either view to adjust'
                         : 'Drag gear to adjust',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                _SummaryBar(container: container, issues: issues),
+                _SummaryBar(plan: plan, issues: issues),
                 const Divider(height: 1),
                 Expanded(
-                  child: _GoodsList(
-                    container: container,
+                  child: _GearList(
+                    plan: plan,
                     issues: issues,
-                    selectedGoodId: _selectedGoodId,
-                    onSelected: (goodId) => setState(
-                      () => _selectedGoodId = _selectedGoodId == goodId
+                    selectedEntryId: _selectedEntryId,
+                    onSelected: (entryId) => setState(
+                      () => _selectedEntryId = _selectedEntryId == entryId
                           ? null
-                          : goodId,
+                          : entryId,
                     ),
-                    onEdit: (good) => _editGood(container, good),
-                    onDelete: (good) => _deleteGood(container, good),
-                    onTogglePlaced: (good) => _togglePlaced(container, good),
+                    onRemove: (entry) => _removeEntry(plan, entry),
+                    onTogglePlaced: (entry) => _togglePlaced(plan, entry),
                   ),
                 ),
               ],
@@ -137,9 +162,9 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: container.goods.isEmpty
+                  onPressed: plan.entries.isEmpty
                       ? null
-                      : () => _autoPack(container),
+                      : () => _autoPack(plan),
                   icon: const Icon(Icons.auto_awesome_mosaic),
                   label: const Text('Auto-pack'),
                 ),
@@ -147,7 +172,7 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () => _addGood(container),
+                  onPressed: () => _addGear(plan),
                   icon: const Icon(Icons.add),
                   label: const Text('Add gear'),
                 ),
@@ -161,10 +186,7 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
 
   /// The height the diagram needs to show the container at its true proportions
   /// across [availableWidth], including the axis label above each view.
-  static double _diagramHeightFor(
-    GearContainer container,
-    double availableWidth,
-  ) {
+  static double _diagramHeightFor(Plan plan, double availableWidth) {
     const labelHeight = 20.0;
 
     double heightFor(double width, double planWidth, double planHeight) {
@@ -172,115 +194,158 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
       return width * planHeight / planWidth;
     }
 
-    if (!container.isThreeDimensional) {
+    final container = plan.container;
+    if (!plan.isThreeDimensional) {
       return heightFor(availableWidth, container.width, container.height) +
           labelHeight;
     }
 
     // Matches the 3:2 split the two views are laid out with.
     final usable = availableWidth - 12;
-    final front = heightFor(
-      usable * 3 / 5,
-      container.width,
-      container.height,
-    );
+    final front = heightFor(usable * 3 / 5, container.width, container.height);
     final side = heightFor(usable * 2 / 5, container.depth!, container.height);
     return math.max(front, side) + labelHeight;
   }
 
-  Future<void> _autoPack(GearContainer container) async {
-    final result = await widget.store.autoPack(container.id);
+  void _report(String message) {
     if (!mounted) return;
-
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          result.everythingFits
-              ? 'Everything fits.'
-              : "${result.unfitted.length} didn't fit: "
-                    '${result.unfitted.map((g) => g.name).join(', ')}',
-        ),
-      ),
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _autoPack(Plan plan) async {
+    final result = await widget.store.autoPack(plan.id);
+    _report(
+      result.everythingFits
+          ? 'Everything fits.'
+          : "${result.unfitted.length} didn't fit: "
+                '${result.unfitted.map((e) => e.item.name).join(', ')}',
     );
   }
 
-  Future<void> _editContainer(GearContainer container) async {
-    final draft = await showGearEditSheet(
-      context,
-      title: 'Edit container',
-      nameLabel: 'Container name',
-      initial: draftFromContainer(container),
-    );
+  Future<void> _editContainer(Plan plan) async {
+    final draft = await showContainerSheet(context, initial: plan.container);
     if (draft == null) return;
 
     await widget.store.updateContainer(
-      container.id,
+      plan.id,
       name: draft.name,
       width: draft.width,
       height: draft.height,
       depth: draft.depth,
+      tolerance: draft.tolerance,
     );
   }
 
-  Future<void> _addGood(GearContainer container) async {
-    final draft = await showGearEditSheet(
-      context,
-      title: 'Add gear',
-      nameLabel: 'Gear name',
-      showRotatable: true,
-    );
-    if (draft == null) return;
+  Future<void> _addGear(Plan plan) async {
+    final chosen = await showGearPicker(context, widget.store);
+    if (chosen == null || chosen.isEmpty) return;
 
-    await widget.store.addGood(
-      container.id,
-      name: draft.name,
-      width: draft.width,
-      height: draft.height,
-      depth: draft.depth,
-      rotatable: draft.rotatable,
-    );
+    final unfitted = <String>[];
+    for (final itemId in chosen) {
+      final placed = await widget.store.addGear(plan.id, itemId);
+      if (!placed) {
+        unfitted.add(widget.store.itemById(itemId)?.name ?? 'gear');
+      }
+    }
+
+    if (unfitted.isEmpty) return;
+    _report("No room for ${unfitted.join(', ')}. Try auto-pack.");
   }
 
-  Future<void> _editGood(GearContainer container, Good good) async {
-    final draft = await showGearEditSheet(
-      context,
-      title: 'Edit gear',
-      nameLabel: 'Gear name',
-      initial: draftFromGood(good),
-      showRotatable: true,
-    );
-    if (draft == null) return;
-
-    await widget.store.updateGood(
-      container.id,
-      good.id,
-      name: draft.name,
-      width: draft.width,
-      height: draft.height,
-      depth: draft.depth,
-      rotatable: draft.rotatable,
-    );
-  }
-
-  Future<void> _deleteGood(GearContainer container, Good good) async {
-    if (_selectedGoodId == good.id) setState(() => _selectedGoodId = null);
-    await widget.store.deleteGood(container.id, good.id);
-  }
-
-  Future<void> _togglePlaced(GearContainer container, Good good) async {
-    if (container.placements.containsKey(good.id)) {
-      await widget.store.unplaceGood(container.id, good.id);
+  Future<void> _applyRecipe(Plan plan) async {
+    final recipes = widget.store.recipes;
+    if (recipes.isEmpty) {
+      _report('No recipes yet. Make one from the Recipes tab.');
       return;
     }
 
-    final placed = await widget.store.placeGood(container.id, good.id);
-    if (placed || !mounted) return;
+    final recipeId = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final recipe in recipes)
+              ListTile(
+                title: Text(recipe.name),
+                subtitle: Text(
+                  '${recipe.itemIds.length} '
+                  '${recipe.itemIds.length == 1 ? 'item' : 'items'}',
+                ),
+                onTap: () => Navigator.of(context).pop(recipe.id),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (recipeId == null) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('No room left for ${good.name}. Try auto-pack.'),
+    final unfitted = await widget.store.applyRecipe(plan.id, recipeId);
+    _report(
+      unfitted.isEmpty
+          ? 'Recipe added, everything fits.'
+          : "Recipe added. No room for "
+                "${unfitted.map((i) => i.name).join(', ')}.",
+    );
+  }
+
+  Future<void> _saveAsRecipe(Plan plan) async {
+    if (plan.entries.isEmpty) {
+      _report('Nothing in this container to save.');
+      return;
+    }
+
+    final name = await showNameDialog(
+      context,
+      title: 'Save as recipe',
+      initial: plan.name,
+      label: 'Recipe name',
+    );
+    if (name == null) return;
+
+    await widget.store.saveContainerAsRecipe(plan.id, name: name);
+    _report('Saved "$name".');
+  }
+
+  Future<void> _removeEntry(Plan plan, PlanEntry entry) async {
+    if (_selectedEntryId == entry.id) {
+      setState(() => _selectedEntryId = null);
+    }
+    await widget.store.removeEntry(plan.id, entry.id);
+  }
+
+  Future<void> _togglePlaced(Plan plan, PlanEntry entry) async {
+    if (entry.isPacked) {
+      await widget.store.unplaceEntry(plan.id, entry.id);
+      return;
+    }
+
+    final placed = await widget.store.placeEntry(plan.id, entry.id);
+    if (placed) return;
+    _report('No room left for ${entry.item.name}. Try auto-pack.');
+  }
+}
+
+class _Banner extends StatelessWidget {
+  const _Banner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      color: theme.colorScheme.errorContainer,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Text(
+        message,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onErrorContainer,
+        ),
       ),
     );
   }
@@ -289,24 +354,24 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
 /// The front view, plus a side view when the plan has depth.
 class _Diagram extends StatelessWidget {
   const _Diagram({
-    required this.container,
+    required this.plan,
     required this.issues,
-    required this.selectedGoodId,
+    required this.selectedEntryId,
     required this.onSelected,
     required this.store,
   });
 
-  final GearContainer container;
+  final Plan plan;
   final Map<String, Set<PlacementIssue>> issues;
-  final String? selectedGoodId;
+  final String? selectedEntryId;
   final ValueChanged<String?> onSelected;
   final GearStore store;
 
-  void _onDragged(ViewAxis axis, String goodId, Offset planDelta) {
+  void _onDragged(ViewAxis axis, String entryId, Offset planDelta) {
     // Both views share the vertical axis; they differ in what runs across.
-    store.moveGood(
-      container.id,
-      goodId,
+    store.moveGear(
+      plan.id,
+      entryId,
       dx: axis == ViewAxis.front ? planDelta.dx : 0,
       dz: axis == ViewAxis.side ? planDelta.dx : 0,
       dy: planDelta.dy,
@@ -314,18 +379,18 @@ class _Diagram extends StatelessWidget {
   }
 
   Widget _view(ViewAxis axis) => ContainerView(
-    container: container,
+    plan: plan,
     axis: axis,
     issues: issues,
-    selectedGoodId: selectedGoodId,
+    selectedEntryId: selectedEntryId,
     onSelected: onSelected,
-    onDragged: (goodId, delta) => _onDragged(axis, goodId, delta),
+    onDragged: (entryId, delta) => _onDragged(axis, entryId, delta),
     onDragEnded: store.flush,
   );
 
   @override
   Widget build(BuildContext context) {
-    if (!container.isThreeDimensional) return _view(ViewAxis.front);
+    if (!plan.isThreeDimensional) return _view(ViewAxis.front);
 
     // The side view only needs to show depth, which is usually the smallest
     // dimension, so give the front view the bulk of the room.
@@ -342,26 +407,26 @@ class _Diagram extends StatelessWidget {
 
 /// The one-line verdict: how full the container is and what is left over.
 class _SummaryBar extends StatelessWidget {
-  const _SummaryBar({required this.container, required this.issues});
+  const _SummaryBar({required this.plan, required this.issues});
 
-  final GearContainer container;
+  final Plan plan;
   final Map<String, Set<PlacementIssue>> issues;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final unpacked = container.unpackedGoods.length;
-    final overlapping = issues.values
+    final unpacked = plan.unpacked.length;
+    final clashing = issues.values
         .where((set) => set.contains(PlacementIssue.overlapping))
         .length;
 
-    final volumeUsed = container.volumeUsed;
-    final fill = volumeUsed ?? container.areaUsed;
+    final volumeUsed = plan.volumeUsed;
+    final fill = volumeUsed ?? plan.areaUsed;
     final fillLabel = volumeUsed == null ? 'area' : 'volume';
 
     final warnings = <String>[
       if (unpacked > 0) '$unpacked not packed',
-      if (overlapping > 0) '$overlapping overlapping',
+      if (clashing > 0) '$clashing too close',
     ];
 
     return Padding(
@@ -407,35 +472,35 @@ class _SummaryBar extends StatelessWidget {
   }
 }
 
-class _GoodsList extends StatelessWidget {
-  const _GoodsList({
-    required this.container,
+class _GearList extends StatelessWidget {
+  const _GearList({
+    required this.plan,
     required this.issues,
-    required this.selectedGoodId,
+    required this.selectedEntryId,
     required this.onSelected,
-    required this.onEdit,
-    required this.onDelete,
+    required this.onRemove,
     required this.onTogglePlaced,
   });
 
-  final GearContainer container;
+  final Plan plan;
   final Map<String, Set<PlacementIssue>> issues;
-  final String? selectedGoodId;
+  final String? selectedEntryId;
   final ValueChanged<String> onSelected;
-  final ValueChanged<Good> onEdit;
-  final ValueChanged<Good> onDelete;
-  final ValueChanged<Good> onTogglePlaced;
+  final ValueChanged<PlanEntry> onRemove;
+  final ValueChanged<PlanEntry> onTogglePlaced;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final unit = UnitScope.of(context);
 
-    if (container.goods.isEmpty) {
+    if (plan.entries.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            'No gear yet. Add something to see how it fits.',
+            'Nothing in here yet. Add gear from your library to see how it '
+            'fits.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
@@ -447,66 +512,65 @@ class _GoodsList extends StatelessWidget {
 
     return ListView.builder(
       padding: const EdgeInsets.only(bottom: 12),
-      itemCount: container.goods.length,
+      itemCount: plan.entries.length,
       itemBuilder: (context, index) {
-        final good = container.goods[index];
-        final placed = container.placements.containsKey(good.id);
-        final goodIssues = issues[good.id] ?? const <PlacementIssue>{};
-
-        final dimensions = [
-          formatLength(good.width),
-          formatLength(good.height),
-          if (good.depth != null) formatLength(good.depth!),
-        ].join(' × ');
+        final entry = plan.entries[index];
+        final item = entry.item;
+        final entryIssues = issues[entry.id] ?? const <PlacementIssue>{};
 
         final notes = <String>[
-          '$dimensions cm',
-          if (!placed) 'not packed',
-          if (goodIssues.contains(PlacementIssue.overlapping)) 'overlapping',
-          if (goodIssues.contains(PlacementIssue.outOfBounds)) 'sticking out',
-          if (!good.rotatable) 'fixed orientation',
+          formatDimensions(
+            unit,
+            width: item.width,
+            height: item.height,
+            depth: item.depth,
+          ),
+          if (!entry.isPacked) 'not packed',
+          if (entryIssues.contains(PlacementIssue.overlapping)) 'too close',
+          if (entryIssues.contains(PlacementIssue.outOfBounds)) 'sticking out',
         ];
 
         return ListTile(
-          selected: good.id == selectedGoodId,
-          onTap: () => onSelected(good.id),
+          selected: entry.id == selectedEntryId,
+          onTap: () => onSelected(entry.id),
           leading: Container(
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: good.color.withValues(alpha: placed ? 1 : 0.3),
+              color: item.color.withValues(alpha: entry.isPacked ? 1 : 0.3),
               borderRadius: BorderRadius.circular(6),
               border: Border.all(
-                color: goodIssues.isNotEmpty
+                color: entryIssues.isNotEmpty
                     ? theme.colorScheme.error
                     : Colors.transparent,
                 width: 2,
               ),
             ),
           ),
-          title: Text(good.name),
+          title: Text(item.name),
           subtitle: Text(
             notes.join(' · '),
             style: theme.textTheme.bodySmall?.copyWith(
-              color: goodIssues.isNotEmpty || !placed
+              color: entryIssues.isNotEmpty || !entry.isPacked
                   ? theme.colorScheme.error
                   : theme.colorScheme.onSurfaceVariant,
             ),
           ),
           trailing: PopupMenuButton<String>(
             onSelected: (value) => switch (value) {
-              'edit' => onEdit(good),
-              'toggle' => onTogglePlaced(good),
-              'delete' => onDelete(good),
+              'toggle' => onTogglePlaced(entry),
+              'remove' => onRemove(entry),
               _ => null,
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(value: 'edit', child: Text('Edit')),
               PopupMenuItem(
                 value: 'toggle',
-                child: Text(placed ? 'Take out' : 'Put in'),
+                child: Text(entry.isPacked ? 'Take out' : 'Put in'),
               ),
-              const PopupMenuItem(value: 'delete', child: Text('Delete')),
+              const PopupMenuItem(
+                value: 'remove',
+                child: Text('Remove from container'),
+              ),
             ],
           ),
         );

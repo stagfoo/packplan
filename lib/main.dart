@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'container_list_screen.dart';
+import 'diagram.dart';
+import 'gear_library_screen.dart';
+import 'recipes_screen.dart';
 import 'store.dart';
 
 void main() {
@@ -26,7 +29,63 @@ class PackPlanApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: ContainerListScreen(store: store),
+      // The chosen unit is needed by almost every screen, so it is published
+      // once here rather than threaded through every constructor.
+      builder: (context, child) => ListenableBuilder(
+        listenable: store,
+        builder: (context, _) =>
+            UnitScope(unit: store.unit, child: child ?? const SizedBox()),
+      ),
+      home: HomeShell(store: store),
+    );
+  }
+}
+
+/// Plans, gear and recipes, with settings reachable from the plans tab.
+class HomeShell extends StatefulWidget {
+  const HomeShell({super.key, required this.store});
+
+  final GearStore store;
+
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  int _index = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(
+        index: _index,
+        children: [
+          ContainerListScreen(store: widget.store),
+          GearLibraryScreen(store: widget.store),
+          RecipesScreen(store: widget.store),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: (index) => setState(() => _index = index),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.backpack_outlined),
+            selectedIcon: Icon(Icons.backpack),
+            label: 'Plans',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.category_outlined),
+            selectedIcon: Icon(Icons.category),
+            label: 'Gear',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.checklist_outlined),
+            selectedIcon: Icon(Icons.checklist),
+            label: 'Recipes',
+          ),
+        ],
+      ),
     );
   }
 }

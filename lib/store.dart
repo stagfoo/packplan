@@ -4,14 +4,15 @@ import 'package:uuid/uuid.dart';
 import 'models.dart';
 import 'packer.dart';
 import 'repository.dart';
+import 'units.dart';
 
 /// Drag positions snap to this many centimetres. Gear measurements are not
 /// precise enough to justify anything finer, and it keeps the numbers readable.
 const double kDragSnap = 0.5;
 
-/// Owns the plan list and every mutation to it. Saves after each change —
-/// there is no explicit save button, and a packing plan you lose on a crash is
-/// worse than useless.
+/// Owns the gear library, the recipes, the plans and the settings, and every
+/// mutation to them. Saves after each change — there is no explicit save
+/// button, and a packing plan you lose on a crash is worse than useless.
 class GearStore extends ChangeNotifier {
   GearStore({GearRepository? repository, Uuid? uuid})
     : _repository = repository ?? GearRepository(),
@@ -20,11 +21,86 @@ class GearStore extends ChangeNotifier {
   final GearRepository _repository;
   final Uuid _uuid;
 
+  AppSettings _settings = const AppSettings();
+  List<GearItem> _items = [];
+  List<Recipe> _recipes = [];
   List<GearContainer> _containers = [];
+  List<CustomUnit> _customUnits = [];
   bool _loaded = false;
 
+  AppSettings get settings => _settings;
+  List<GearItem> get items => List.unmodifiable(_items);
+  List<Recipe> get recipes => List.unmodifiable(_recipes);
   List<GearContainer> get containers => List.unmodifiable(_containers);
+  List<CustomUnit> get customUnits => List.unmodifiable(_customUnits);
   bool get isLoaded => _loaded;
+
+  /// The unit currently in use. Falls back to centimetres if the chosen unit
+  /// has since been deleted.
+  MeasurementUnit get unit =>
+      unitById(_settings.unitId) ?? MeasurementUnit.centimetres;
+
+  /// Every unit available to choose from, built-ins first.
+  List<MeasurementUnit> get availableUnits => [
+    ...MeasurementUnit.builtIns,
+    ..._customUnits.map(resolveCustomUnit),
+  ];
+
+  MeasurementUnit? unitById(String id) {
+    final builtIn = MeasurementUnit.builtInById(id);
+    if (builtIn != null) return builtIn;
+
+    for (final custom in _customUnits) {
+      if (custom.id == id) return resolveCustomUnit(custom);
+    }
+    return null;
+  }
+
+  CustomUnit? customUnitById(String id) {
+    for (final custom in _customUnits) {
+      if (custom.id == id) return custom;
+    }
+    return null;
+  }
+
+  /// Turns a stored definition into a usable unit, taking the length from its
+  /// source gear when it has one — so re-measuring the gear re-calibrates the
+  /// unit — and from the captured length when that gear is gone.
+  MeasurementUnit resolveCustomUnit(CustomUnit custom) {
+    final sourceId = custom.sourceItemId;
+    if (sourceId == null) return custom.resolve();
+
+    final item = itemById(sourceId);
+    final axis = custom.sourceAxis;
+    if (item == null || axis == null) return custom.resolve();
+
+    return custom.resolve(liveLength: item.dimension(axis));
+  }
+
+  /// The gear a derived unit measures by, or null when it is free-form or its
+  /// gear has been deleted.
+  GearItem? sourceItemFor(CustomUnit custom) {
+    final sourceId = custom.sourceItemId;
+    return sourceId == null ? null : itemById(sourceId);
+  }
+
+  /// Every tag in use across the library, sorted.
+  List<String> get allTags =>
+      normaliseTags(_items.expand((item) => item.tags));
+
+  GearItem? itemById(String id) {
+    for (final item in _items) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+
+  Recipe? recipeById(String id) {
+    for (final recipe in _recipes) {
+      if (recipe.id == id) return recipe;
+    }
+    return null;
+  }
 
   GearContainer? containerById(String id) {
     for (final container in _containers) {
@@ -33,25 +109,65 @@ class GearStore extends ChangeNotifier {
     return null;
   }
 
+  /// Resolves a container's entries against the library. Entries whose item has
+  /// been deleted are dropped, so a stale reference can never crash a screen.
+  Plan? planFor(String containerId) {
+    final container = containerById(containerId);
+    if (container == null) return null;
+    return _planOf(container);
+  }
+
+  Plan _planOf(GearContainer container) {
+    final entries = <PlanEntry>[];
+    for (final entry in container.entries) {
+      final item = itemById(entry.itemId);
+      if (item == null) continue;
+      entries.add(
+        PlanEntry(
+          id: entry.id,
+          item: item,
+          placement: container.placements[entry.id],
+        ),
+      );
+    }
+    return Plan(container: container, entries: entries);
+  }
+
   Future<void> load() async {
-    _containers = await _repository.load();
+    final data = await _repository.load();
+    _settings = data.settings;
+    _items = [...data.items];
+    _recipes = [...data.recipes];
+    _containers = [...data.containers];
+    _customUnits = [...data.customUnits];
     _loaded = true;
     notifyListeners();
   }
 
   Future<void> _commit() async {
     notifyListeners();
-    await _repository.save(_containers);
+    await flush();
   }
 
-  int _replace(GearContainer container) {
+  /// Writes the current state out. Called after every mutation, and at the end
+  /// of a drag by [moveGear].
+  Future<void> flush() => _repository.save(
+    GearData(
+      settings: _settings,
+      items: _items,
+      recipes: _recipes,
+      containers: _containers,
+      customUnits: _customUnits,
+    ),
+  );
+
+  void _replace(GearContainer container) {
     final index = _containers.indexWhere((c) => c.id == container.id);
     if (index >= 0) _containers[index] = container;
-    return index;
   }
 
-  /// Picks the palette colour least used so far, so a new item is easy to pick
-  /// out from the ones already on the diagram.
+  /// Picks the palette colour least used so far, so a new thing is easy to pick
+  /// out from what is already on the diagram.
   int _nextColor(Iterable<int> taken) {
     final counts = {for (final color in kGearPalette) color: 0};
     for (final color in taken) {
@@ -60,11 +176,299 @@ class GearStore extends ChangeNotifier {
     return counts.entries.reduce((a, b) => a.value <= b.value ? a : b).key;
   }
 
+  // ---------------------------------------------------------------- settings
+
+  Future<void> setUnit(MeasurementUnit unit) => setUnitId(unit.id);
+
+  Future<void> setUnitId(String unitId) async {
+    _settings = _settings.copyWith(unitId: unitId);
+    await _commit();
+  }
+
+  /// Defines a unit from a plain length, in centimetres — "my hand is 19 cm".
+  Future<CustomUnit> addCustomUnit({
+    required String name,
+    required double centimetres,
+  }) async {
+    final custom = CustomUnit(
+      id: _uuid.v4(),
+      name: name,
+      centimetres: centimetres < kMinimumUnitLength
+          ? kMinimumUnitLength
+          : centimetres,
+    );
+    _customUnits.add(custom);
+    await _commit();
+    return custom;
+  }
+
+  /// Defines a unit from a piece of gear, measured along [axis]. The length
+  /// tracks the gear from then on, so correcting the gear's size corrects every
+  /// measurement made with it.
+  Future<CustomUnit?> addCustomUnitFromItem(
+    String itemId, {
+    GearAxis? axis,
+    String? name,
+  }) async {
+    final item = itemById(itemId);
+    if (item == null) return null;
+
+    final chosen = axis ?? item.longestAxis;
+    final length = item.dimension(chosen);
+    if (length == null || length < kMinimumUnitLength) return null;
+
+    final custom = CustomUnit(
+      id: _uuid.v4(),
+      name: name ?? item.name,
+      centimetres: length,
+      sourceItemId: itemId,
+      sourceAxis: chosen,
+    );
+    _customUnits.add(custom);
+    await _commit();
+    return custom;
+  }
+
+  Future<void> updateCustomUnit(
+    String unitId, {
+    required String name,
+    double? centimetres,
+    GearAxis? axis,
+  }) async {
+    final index = _customUnits.indexWhere((unit) => unit.id == unitId);
+    if (index < 0) return;
+
+    final existing = _customUnits[index];
+    _customUnits[index] = existing.copyWith(
+      name: name,
+      centimetres: centimetres == null
+          ? null
+          : (centimetres < kMinimumUnitLength
+                ? kMinimumUnitLength
+                : centimetres),
+      sourceAxis: axis,
+    );
+    await _commit();
+  }
+
+  /// Deleting the unit in use falls back to centimetres rather than leaving
+  /// every measurement dangling.
+  Future<void> deleteCustomUnit(String unitId) async {
+    _customUnits.removeWhere((unit) => unit.id == unitId);
+    if (_settings.unitId == unitId) {
+      _settings = _settings.copyWith(unitId: MeasurementUnit.centimetres.id);
+    }
+    await _commit();
+  }
+
+  /// [tolerance] is in centimetres. Only affects containers made from now on;
+  /// existing ones keep whatever they were given.
+  Future<void> setDefaultTolerance(double tolerance) async {
+    _settings = _settings.copyWith(defaultTolerance: tolerance);
+    await _commit();
+  }
+
+  // ----------------------------------------------------------------- library
+
+  Future<GearItem> addItem({
+    required String name,
+    required double width,
+    required double height,
+    double? depth,
+    bool rotatable = true,
+    List<String> tags = const [],
+  }) async {
+    final item = GearItem(
+      id: _uuid.v4(),
+      name: name,
+      width: width,
+      height: height,
+      depth: depth,
+      colorValue: _nextColor(_items.map((i) => i.colorValue)),
+      rotatable: rotatable,
+      tags: normaliseTags(tags),
+    );
+    _items.add(item);
+    await _commit();
+    return item;
+  }
+
+  /// Updating an item's size invalidates its placement everywhere it is used,
+  /// so each affected container finds it a fresh spot.
+  Future<void> updateItem(
+    String itemId, {
+    required String name,
+    required double width,
+    required double height,
+    double? depth,
+    required bool rotatable,
+    required List<String> tags,
+  }) async {
+    final index = _items.indexWhere((item) => item.id == itemId);
+    if (index < 0) return;
+
+    final existing = _items[index];
+    final resized =
+        existing.width != width ||
+        existing.height != height ||
+        existing.depth != depth;
+
+    _items[index] = existing.copyWith(
+      name: name,
+      width: width,
+      height: height,
+      depth: depth,
+      clearDepth: depth == null,
+      rotatable: rotatable,
+      tags: normaliseTags(tags),
+    );
+
+    if (resized) {
+      for (final container in [..._containers]) {
+        final affected = container.entries
+            .where((entry) => entry.itemId == itemId)
+            .map((entry) => entry.id)
+            .toSet();
+        if (affected.isEmpty) continue;
+        _replace(_reseat(container, affected));
+      }
+    }
+
+    await _commit();
+  }
+
+  /// Drops the given entries' placements and finds each a new spot among what
+  /// is left.
+  GearContainer _reseat(GearContainer container, Set<String> entryIds) {
+    var placements = {...container.placements}
+      ..removeWhere((entryId, _) => entryIds.contains(entryId));
+    var working = container.copyWith(placements: placements);
+
+    for (final entryId in entryIds) {
+      final plan = _planOf(working);
+      final entry = plan.entryById(entryId);
+      if (entry == null) continue;
+      final spot = findSpotFor(plan, entry);
+      if (spot == null) continue;
+      placements = {...placements, entryId: spot};
+      working = working.copyWith(placements: placements);
+    }
+
+    return working;
+  }
+
+  /// Deleting an item removes it from every container and recipe too — a
+  /// dangling reference would be worse than losing the placement.
+  Future<void> deleteItem(String itemId) async {
+    _items.removeWhere((item) => item.id == itemId);
+
+    for (var i = 0; i < _containers.length; i++) {
+      final container = _containers[i];
+      final removed = container.entries
+          .where((entry) => entry.itemId == itemId)
+          .map((entry) => entry.id)
+          .toSet();
+      if (removed.isEmpty) continue;
+
+      _containers[i] = container.copyWith(
+        entries: container.entries
+            .where((entry) => entry.itemId != itemId)
+            .toList(),
+        placements: {...container.placements}
+          ..removeWhere((entryId, _) => removed.contains(entryId)),
+      );
+    }
+
+    for (var i = 0; i < _recipes.length; i++) {
+      final recipe = _recipes[i];
+      if (!recipe.itemIds.contains(itemId)) continue;
+      _recipes[i] = Recipe(
+        id: recipe.id,
+        name: recipe.name,
+        itemIds: recipe.itemIds.where((id) => id != itemId).toList(),
+      );
+    }
+
+    await _commit();
+  }
+
+  /// How many containers currently hold this item — worth showing before a
+  /// delete removes it from all of them.
+  int usageCount(String itemId) => _containers
+      .where((c) => c.entries.any((entry) => entry.itemId == itemId))
+      .length;
+
+  // ---------------------------------------------------------------- recipes
+
+  Future<Recipe> addRecipe({
+    required String name,
+    List<String> itemIds = const [],
+  }) async {
+    final recipe = Recipe(id: _uuid.v4(), name: name, itemIds: [...itemIds]);
+    _recipes.add(recipe);
+    await _commit();
+    return recipe;
+  }
+
+  Future<void> updateRecipe(
+    String recipeId, {
+    required String name,
+    required List<String> itemIds,
+  }) async {
+    final index = _recipes.indexWhere((recipe) => recipe.id == recipeId);
+    if (index < 0) return;
+    _recipes[index] = Recipe(id: recipeId, name: name, itemIds: [...itemIds]);
+    await _commit();
+  }
+
+  Future<void> deleteRecipe(String recipeId) async {
+    _recipes.removeWhere((recipe) => recipe.id == recipeId);
+    await _commit();
+  }
+
+  /// Saves what a container currently holds as a reusable recipe.
+  Future<Recipe> saveContainerAsRecipe(
+    String containerId, {
+    required String name,
+  }) async {
+    final container = containerById(containerId);
+    return addRecipe(
+      name: name,
+      itemIds: container == null
+          ? const []
+          : container.entries.map((entry) => entry.itemId).toList(),
+    );
+  }
+
+  /// Adds every item in a recipe to a container, placing each in free space so
+  /// any arrangement already made by hand survives. Returns the items that
+  /// found no room.
+  Future<List<GearItem>> applyRecipe(
+    String containerId,
+    String recipeId,
+  ) async {
+    final recipe = recipeById(recipeId);
+    if (recipe == null) return const [];
+
+    final unfitted = <GearItem>[];
+    for (final itemId in recipe.itemIds) {
+      final placed = await addGear(containerId, itemId);
+      if (!placed) {
+        final item = itemById(itemId);
+        if (item != null) unfitted.add(item);
+      }
+    }
+    return unfitted;
+  }
+
+  // -------------------------------------------------------------- containers
+
   Future<GearContainer> addContainer({
     required String name,
     required double width,
     required double height,
     double? depth,
+    double? tolerance,
   }) async {
     final container = GearContainer(
       id: _uuid.v4(),
@@ -73,6 +477,7 @@ class GearStore extends ChangeNotifier {
       height: height,
       depth: depth,
       colorValue: _nextColor(_containers.map((c) => c.colorValue)),
+      tolerance: tolerance ?? _settings.defaultTolerance,
     );
     _containers.add(container);
     await _commit();
@@ -85,14 +490,16 @@ class GearStore extends ChangeNotifier {
     required double width,
     required double height,
     double? depth,
+    required double tolerance,
   }) async {
     final container = containerById(containerId);
     if (container == null) return;
 
-    final resized =
+    final reshaped =
         container.width != width ||
         container.height != height ||
-        container.depth != depth;
+        container.depth != depth ||
+        container.tolerance != tolerance;
 
     var updated = container.copyWith(
       name: name,
@@ -100,12 +507,15 @@ class GearStore extends ChangeNotifier {
       height: height,
       depth: depth,
       clearDepth: depth == null,
+      tolerance: tolerance,
     );
 
-    // Changing the shape invalidates every position, so lay it out again
-    // rather than leaving goods hanging outside their container.
-    if (resized) {
-      updated = updated.copyWith(placements: packContainer(updated).placements);
+    // Changing the shape or the tolerance invalidates every position, so lay it
+    // out again rather than leaving gear hanging outside its container.
+    if (reshaped) {
+      updated = updated.copyWith(
+        placements: packPlan(_planOf(updated)).placements,
+      );
     }
 
     _replace(updated);
@@ -117,97 +527,86 @@ class GearStore extends ChangeNotifier {
     await _commit();
   }
 
-  Future<void> addGood(
-    String containerId, {
-    required String name,
-    required double width,
-    required double height,
-    double? depth,
-    bool rotatable = true,
-  }) async {
+  Future<GearContainer?> duplicateContainer(String containerId) async {
     final container = containerById(containerId);
-    if (container == null) return;
+    if (container == null) return null;
 
-    final good = Good(
+    // Entries get fresh ids, and placements are re-keyed to match.
+    final entryIds = <String, String>{};
+    final entries = container.entries.map((entry) {
+      final id = _uuid.v4();
+      entryIds[entry.id] = id;
+      return ContainerEntry(id: id, itemId: entry.itemId);
+    }).toList();
+
+    final placements = <String, Placement>{};
+    container.placements.forEach((oldId, placement) {
+      final newId = entryIds[oldId];
+      if (newId == null) return;
+      placements[newId] = Placement(
+        entryId: newId,
+        x: placement.x,
+        y: placement.y,
+        z: placement.z,
+        width: placement.width,
+        height: placement.height,
+        depth: placement.depth,
+      );
+    });
+
+    final copy = GearContainer(
       id: _uuid.v4(),
-      name: name,
-      width: width,
-      height: height,
-      depth: depth,
-      colorValue: _nextColor(container.goods.map((g) => g.colorValue)),
-      rotatable: rotatable,
+      name: '${container.name} copy',
+      width: container.width,
+      height: container.height,
+      depth: container.depth,
+      colorValue: container.colorValue,
+      tolerance: container.tolerance,
+      entries: entries,
+      placements: placements,
     );
 
-    // Slot the new good into whatever space is left instead of re-packing, so
-    // any arrangement the user made by hand survives.
-    final spot = findSpotFor(container, good);
-
-    _replace(
-      container.copyWith(
-        goods: [...container.goods, good],
-        placements: spot == null
-            ? container.placements
-            : {...container.placements, good.id: spot},
-      ),
-    );
+    _containers.add(copy);
     await _commit();
+    return copy;
   }
 
-  Future<void> updateGood(
-    String containerId,
-    String goodId, {
-    required String name,
-    required double width,
-    required double height,
-    double? depth,
-    required bool rotatable,
-  }) async {
+  // -------------------------------------------------------- gear in a container
+
+  /// Puts a library item into a container, placing it in free space. Returns
+  /// false when it was added but found no room.
+  Future<bool> addGear(String containerId, String itemId) async {
     final container = containerById(containerId);
-    if (container == null) return;
+    if (container == null || itemById(itemId) == null) return false;
 
-    final index = container.goods.indexWhere((g) => g.id == goodId);
-    if (index < 0) return;
+    final entry = ContainerEntry(id: _uuid.v4(), itemId: itemId);
+    var updated = container.copyWith(entries: [...container.entries, entry]);
 
-    final existing = container.goods[index];
-    final updated = existing.copyWith(
-      name: name,
-      width: width,
-      height: height,
-      depth: depth,
-      clearDepth: depth == null,
-      rotatable: rotatable,
-    );
+    final plan = _planOf(updated);
+    final planEntry = plan.entryById(entry.id);
+    final spot = planEntry == null ? null : findSpotFor(plan, planEntry);
 
-    final goods = [...container.goods]..[index] = updated;
-    final resized =
-        existing.width != width ||
-        existing.height != height ||
-        existing.depth != depth;
-
-    var placements = container.placements;
-    if (resized) {
-      // The old placement describes the old size, so drop it and find the
-      // resized good a fresh spot among everything else.
-      final without = {...placements}..remove(goodId);
-      final spot = findSpotFor(
-        container.copyWith(goods: goods, placements: without),
-        updated,
+    if (spot != null) {
+      updated = updated.copyWith(
+        placements: {...updated.placements, entry.id: spot},
       );
-      placements = spot == null ? without : {...without, goodId: spot};
     }
 
-    _replace(container.copyWith(goods: goods, placements: placements));
+    _replace(updated);
     await _commit();
+    return spot != null;
   }
 
-  Future<void> deleteGood(String containerId, String goodId) async {
+  Future<void> removeEntry(String containerId, String entryId) async {
     final container = containerById(containerId);
     if (container == null) return;
 
     _replace(
       container.copyWith(
-        goods: container.goods.where((g) => g.id != goodId).toList(),
-        placements: {...container.placements}..remove(goodId),
+        entries: container.entries
+            .where((entry) => entry.id != entryId)
+            .toList(),
+        placements: {...container.placements}..remove(entryId),
       ),
     );
     await _commit();
@@ -220,53 +619,52 @@ class GearStore extends ChangeNotifier {
       return const PackResult(placements: {}, unfitted: []);
     }
 
-    final result = packContainer(container);
+    final result = packPlan(_planOf(container));
     _replace(container.copyWith(placements: result.placements));
     await _commit();
     return result;
   }
 
-  /// Takes a good out of the diagram without deleting it.
-  Future<void> unplaceGood(String containerId, String goodId) async {
+  /// Takes gear out of the diagram without removing it from the container.
+  Future<void> unplaceEntry(String containerId, String entryId) async {
     final container = containerById(containerId);
     if (container == null) return;
 
     _replace(
-      container.copyWith(placements: {...container.placements}..remove(goodId)),
+      container.copyWith(placements: {...container.placements}..remove(entryId)),
     );
     await _commit();
   }
 
-  /// Puts an unplaced good back on the diagram, if there is room.
-  /// Returns false when there is not.
-  Future<bool> placeGood(String containerId, String goodId) async {
+  /// Puts an unplaced entry back on the diagram, if there is room.
+  Future<bool> placeEntry(String containerId, String entryId) async {
     final container = containerById(containerId);
     if (container == null) return false;
 
-    final index = container.goods.indexWhere((g) => g.id == goodId);
-    if (index < 0) return false;
+    final plan = _planOf(container);
+    final entry = plan.entryById(entryId);
+    if (entry == null) return false;
 
-    final spot = findSpotFor(container, container.goods[index]);
+    final spot = findSpotFor(plan, entry);
     if (spot == null) return false;
 
     _replace(
       container.copyWith(
-        placements: {...container.placements, goodId: spot},
+        placements: {...container.placements, entryId: spot},
       ),
     );
     await _commit();
     return true;
   }
 
-  /// Moves a placed good by a plan-space delta, clamped to stay inside the
-  /// container. Overlaps are allowed — the diagram flags them, because
-  /// refusing the drag outright makes rearranging by hand miserable.
+  /// Moves placed gear by a plan-space delta, clamped to stay inside the usable
+  /// space. Clashes are allowed — the diagram flags them, because refusing the
+  /// drag outright makes rearranging by hand miserable.
   ///
-  /// Does not save: a drag fires this every frame. Call [flush] when the drag
-  /// ends.
-  void moveGood(
+  /// Does not save: a drag fires this every frame. Call [flush] when it ends.
+  void moveGear(
     String containerId,
-    String goodId, {
+    String entryId, {
     double dx = 0,
     double dy = 0,
     double dz = 0,
@@ -274,34 +672,43 @@ class GearStore extends ChangeNotifier {
     final container = containerById(containerId);
     if (container == null) return;
 
-    final placement = container.placements[goodId];
+    final placement = container.placements[entryId];
     if (placement == null) return;
 
-    final containerDepth = container.isThreeDimensional
-        ? container.depth!
-        : 1.0;
+    final plan = _planOf(container);
+    final tolerance = container.tolerance;
+    final depthTolerance = plan.isThreeDimensional ? tolerance : 0.0;
 
     final moved = placement.copyWith(
-      x: _clamp(placement.x + dx, container.width - placement.width),
-      y: _clamp(placement.y + dy, container.height - placement.height),
-      z: _clamp(placement.z + dz, containerDepth - placement.depth),
+      x: _clamp(
+        placement.x + dx,
+        tolerance,
+        container.width - tolerance - placement.width,
+      ),
+      y: _clamp(
+        placement.y + dy,
+        tolerance,
+        container.height - tolerance - placement.height,
+      ),
+      z: _clamp(
+        placement.z + dz,
+        depthTolerance,
+        plan.workingDepth - depthTolerance - placement.depth,
+      ),
     );
 
     _replace(
       container.copyWith(
-        placements: {...container.placements, goodId: moved},
+        placements: {...container.placements, entryId: moved},
       ),
     );
-
     notifyListeners();
   }
 
-  /// Writes out changes made by [moveGood]. Called when a drag finishes.
-  Future<void> flush() => _repository.save(_containers);
-
-  double _clamp(double value, double max) {
+  double _clamp(double value, double min, double max) {
+    // Snapping before clamping would let a snap push gear back out of bounds.
     final snapped = (value / kDragSnap).round() * kDragSnap;
-    if (max <= 0) return 0;
-    return snapped.clamp(0.0, max);
+    if (max <= min) return min;
+    return snapped.clamp(min, max);
   }
 }

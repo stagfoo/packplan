@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'container_list_screen.dart';
+import 'plan_list_screen.dart';
 import 'diagram.dart';
 import 'gear_library_screen.dart';
 import 'loadouts_screen.dart';
@@ -60,7 +60,7 @@ class _HomeShellState extends State<HomeShell> {
       body: IndexedStack(
         index: _index,
         children: [
-          ContainerListScreen(store: widget.store),
+          PlanListScreen(store: widget.store),
           GearLibraryScreen(store: widget.store),
           LoadoutsScreen(store: widget.store),
         ],

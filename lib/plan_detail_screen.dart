@@ -11,21 +11,21 @@ import 'store.dart';
 import 'units.dart';
 
 /// The diagram plus the gear list for one container.
-class ContainerDetailScreen extends StatefulWidget {
-  const ContainerDetailScreen({
+class PlanDetailScreen extends StatefulWidget {
+  const PlanDetailScreen({
     super.key,
     required this.store,
-    required this.containerId,
+    required this.planId,
   });
 
   final GearStore store;
-  final String containerId;
+  final String planId;
 
   @override
-  State<ContainerDetailScreen> createState() => _ContainerDetailScreenState();
+  State<PlanDetailScreen> createState() => _PlanDetailScreenState();
 }
 
-class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
+class _PlanDetailScreenState extends State<PlanDetailScreen> {
   String? _selectedEntryId;
 
   @override
@@ -33,13 +33,13 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
     return ListenableBuilder(
       listenable: widget.store,
       builder: (context, _) {
-        final plan = widget.store.planFor(widget.containerId);
+        final plan = widget.store.planFor(widget.planId);
 
-        // The container can disappear if it was deleted from the list screen
-        // while this route was still on the stack.
+        // The plan can disappear if it was deleted from the list screen, or
+        // if its container gear was deleted from the library.
         if (plan == null) {
           return const Scaffold(
-            body: Center(child: Text('This container was deleted.')),
+            body: Center(child: Text('This plan is gone.')),
           );
         }
 
@@ -58,9 +58,9 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
         title: Text(plan.name),
         actions: [
           IconButton(
-            tooltip: 'Edit container',
+            tooltip: 'Edit plan',
             icon: const Icon(Icons.straighten),
-            onPressed: () => _editContainer(plan),
+            onPressed: () => _editPlan(plan),
           ),
           PopupMenuButton<String>(
             onSelected: (value) => switch (value) {
@@ -103,8 +103,9 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
                 if (noSpace)
                   _Banner(
                     message:
-                        'The tolerance leaves no usable space in this '
-                        'container. Lower it or make the container bigger.',
+                        'The tolerance leaves no usable space in '
+                        '\${plan.container.name}. Lower it, or pack into '
+                        'something bigger.',
                   ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
@@ -224,16 +225,18 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
     );
   }
 
-  Future<void> _editContainer(Plan plan) async {
-    final draft = await showContainerSheet(context, initial: plan.container);
+  Future<void> _editPlan(Plan plan) async {
+    final draft = await showPlanSheet(
+      context,
+      containers: widget.store.containerItems,
+      initial: plan.record,
+    );
     if (draft == null) return;
 
-    await widget.store.updateContainer(
+    await widget.store.updatePlan(
       plan.id,
       name: draft.name,
-      width: draft.width,
-      height: draft.height,
-      depth: draft.depth,
+      containerItemId: draft.containerItemId,
       tolerance: draft.tolerance,
     );
   }
@@ -293,7 +296,7 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
 
   Future<void> _saveAsLoadout(Plan plan) async {
     if (plan.entries.isEmpty) {
-      _report('Nothing in this container to save.');
+      _report('Nothing in this plan to save.');
       return;
     }
 
@@ -305,7 +308,7 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
     );
     if (name == null) return;
 
-    await widget.store.saveContainerAsLoadout(plan.id, name: name);
+    await widget.store.savePlanAsLoadout(plan.id, name: name);
     _report('Saved "$name".');
   }
 

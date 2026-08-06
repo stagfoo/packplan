@@ -24,16 +24,22 @@ class GearStore extends ChangeNotifier {
   AppSettings _settings = const AppSettings();
   List<GearItem> _items = [];
   List<Loadout> _loadouts = [];
-  List<GearContainer> _containers = [];
+  List<PlanRecord> _plans = [];
   List<CustomUnit> _customUnits = [];
   bool _loaded = false;
 
   AppSettings get settings => _settings;
   List<GearItem> get items => List.unmodifiable(_items);
   List<Loadout> get loadouts => List.unmodifiable(_loadouts);
-  List<GearContainer> get containers => List.unmodifiable(_containers);
+  List<PlanRecord> get planRecords => List.unmodifiable(_plans);
   List<CustomUnit> get customUnits => List.unmodifiable(_customUnits);
   bool get isLoaded => _loaded;
+
+  /// Library gear that a plan can be built around.
+  List<GearItem> get containerItems =>
+      _items.where((item) => item.isContainer).toList();
+
+  // ------------------------------------------------------------------- units
 
   /// The unit currently in use. Falls back to centimetres if the chosen unit
   /// has since been deleted.
@@ -84,9 +90,10 @@ class GearStore extends ChangeNotifier {
     return sourceId == null ? null : itemById(sourceId);
   }
 
+  // ----------------------------------------------------------------- lookups
+
   /// Every tag in use across the library, sorted.
-  List<String> get allTags =>
-      normaliseTags(_items.expand((item) => item.tags));
+  List<String> get allTags => normaliseTags(_items.expand((item) => item.tags));
 
   GearItem? itemById(String id) {
     for (final item in _items) {
@@ -102,43 +109,51 @@ class GearStore extends ChangeNotifier {
     return null;
   }
 
-  GearContainer? containerById(String id) {
-    for (final container in _containers) {
-      if (container.id == id) return container;
+  PlanRecord? planRecordById(String id) {
+    for (final plan in _plans) {
+      if (plan.id == id) return plan;
     }
     return null;
   }
 
-  /// Resolves a container's entries against the library. Entries whose item has
-  /// been deleted are dropped, so a stale reference can never crash a screen.
-  Plan? planFor(String containerId) {
-    final container = containerById(containerId);
-    if (container == null) return null;
-    return _planOf(container);
+  /// Every plan, resolved. Plans whose container gear has been deleted are
+  /// dropped rather than crashing a screen.
+  List<Plan> get plans =>
+      _plans.map(_resolve).whereType<Plan>().toList();
+
+  Plan? planFor(String planId) {
+    final record = planRecordById(planId);
+    return record == null ? null : _resolve(record);
   }
 
-  Plan _planOf(GearContainer container) {
+  Plan? _resolve(PlanRecord record) {
+    final container = itemById(record.containerItemId);
+    if (container == null) return null;
+
     final entries = <PlanEntry>[];
-    for (final entry in container.entries) {
-      final item = itemById(entry.itemId);
+    for (final planItem in record.items) {
+      final item = itemById(planItem.itemId);
       if (item == null) continue;
       entries.add(
         PlanEntry(
-          id: entry.id,
+          id: planItem.id,
           item: item,
-          placement: container.placements[entry.id],
+          placement: record.placements[planItem.id],
         ),
       );
     }
-    return Plan(container: container, entries: entries);
+
+    return Plan(record: record, container: container, entries: entries);
   }
+
+  // --------------------------------------------------------------- lifecycle
 
   Future<void> load() async {
     final data = await _repository.load();
     _settings = data.settings;
     _items = [...data.items];
     _loadouts = [...data.loadouts];
-    _containers = [...data.containers];
+    _plans = [...data.plans];
     _customUnits = [...data.customUnits];
     _loaded = true;
     notifyListeners();
@@ -156,14 +171,14 @@ class GearStore extends ChangeNotifier {
       settings: _settings,
       items: _items,
       loadouts: _loadouts,
-      containers: _containers,
+      plans: _plans,
       customUnits: _customUnits,
     ),
   );
 
-  void _replace(GearContainer container) {
-    final index = _containers.indexWhere((c) => c.id == container.id);
-    if (index >= 0) _containers[index] = container;
+  void _replace(PlanRecord record) {
+    final index = _plans.indexWhere((plan) => plan.id == record.id);
+    if (index >= 0) _plans[index] = record;
   }
 
   /// Picks the palette colour least used so far, so a new thing is easy to pick
@@ -182,6 +197,13 @@ class GearStore extends ChangeNotifier {
 
   Future<void> setUnitId(String unitId) async {
     _settings = _settings.copyWith(unitId: unitId);
+    await _commit();
+  }
+
+  /// [tolerance] is in centimetres. Only affects plans made from now on;
+  /// existing ones keep whatever they were given.
+  Future<void> setDefaultTolerance(double tolerance) async {
+    _settings = _settings.copyWith(defaultTolerance: tolerance);
     await _commit();
   }
 
@@ -261,13 +283,6 @@ class GearStore extends ChangeNotifier {
     await _commit();
   }
 
-  /// [tolerance] is in centimetres. Only affects containers made from now on;
-  /// existing ones keep whatever they were given.
-  Future<void> setDefaultTolerance(double tolerance) async {
-    _settings = _settings.copyWith(defaultTolerance: tolerance);
-    await _commit();
-  }
-
   // ----------------------------------------------------------------- library
 
   Future<GearItem> addItem({
@@ -277,6 +292,7 @@ class GearStore extends ChangeNotifier {
     double? depth,
     bool rotatable = true,
     List<String> tags = const [],
+    bool isContainer = false,
   }) async {
     final item = GearItem(
       id: _uuid.v4(),
@@ -287,6 +303,7 @@ class GearStore extends ChangeNotifier {
       colorValue: _nextColor(_items.map((i) => i.colorValue)),
       rotatable: rotatable,
       tags: normaliseTags(tags),
+      isContainer: isContainer,
     );
     _items.add(item);
     await _commit();
@@ -294,7 +311,8 @@ class GearStore extends ChangeNotifier {
   }
 
   /// Updating an item's size invalidates its placement everywhere it is used,
-  /// so each affected container finds it a fresh spot.
+  /// so each affected plan finds it a fresh spot. Resizing a *container*
+  /// re-packs every plan built on it, since every position is now suspect.
   Future<void> updateItem(
     String itemId, {
     required String name,
@@ -303,6 +321,7 @@ class GearStore extends ChangeNotifier {
     double? depth,
     required bool rotatable,
     required List<String> tags,
+    bool? isContainer,
   }) async {
     final index = _items.indexWhere((item) => item.id == itemId);
     if (index < 0) return;
@@ -321,16 +340,27 @@ class GearStore extends ChangeNotifier {
       clearDepth: depth == null,
       rotatable: rotatable,
       tags: normaliseTags(tags),
+      isContainer: isContainer,
     );
 
     if (resized) {
-      for (final container in [..._containers]) {
-        final affected = container.entries
-            .where((entry) => entry.itemId == itemId)
-            .map((entry) => entry.id)
+      for (var i = 0; i < _plans.length; i++) {
+        final record = _plans[i];
+
+        if (record.containerItemId == itemId) {
+          final plan = _resolve(record);
+          if (plan != null) {
+            _plans[i] = record.copyWith(placements: packPlan(plan).placements);
+          }
+          continue;
+        }
+
+        final affected = record.items
+            .where((planItem) => planItem.itemId == itemId)
+            .map((planItem) => planItem.id)
             .toSet();
         if (affected.isEmpty) continue;
-        _replace(_reseat(container, affected));
+        _plans[i] = _reseat(record, affected);
       }
     }
 
@@ -339,13 +369,14 @@ class GearStore extends ChangeNotifier {
 
   /// Drops the given entries' placements and finds each a new spot among what
   /// is left.
-  GearContainer _reseat(GearContainer container, Set<String> entryIds) {
-    var placements = {...container.placements}
+  PlanRecord _reseat(PlanRecord record, Set<String> entryIds) {
+    var placements = {...record.placements}
       ..removeWhere((entryId, _) => entryIds.contains(entryId));
-    var working = container.copyWith(placements: placements);
+    var working = record.copyWith(placements: placements);
 
     for (final entryId in entryIds) {
-      final plan = _planOf(working);
+      final plan = _resolve(working);
+      if (plan == null) break;
       final entry = plan.entryById(entryId);
       if (entry == null) continue;
       final spot = findSpotFor(plan, entry);
@@ -357,24 +388,41 @@ class GearStore extends ChangeNotifier {
     return working;
   }
 
-  /// Deleting an item removes it from every container and loadout too — a
-  /// dangling reference would be worse than losing the placement.
+  /// How many plans currently use this item, either as their container or as
+  /// gear inside one.
+  int usageCount(String itemId) => _plans
+      .where(
+        (plan) =>
+            plan.containerItemId == itemId ||
+            plan.items.any((planItem) => planItem.itemId == itemId),
+      )
+      .length;
+
+  /// Plans that would be deleted along with this item, because it is what they
+  /// are packed into.
+  List<PlanRecord> plansBuiltOn(String itemId) =>
+      _plans.where((plan) => plan.containerItemId == itemId).toList();
+
+  /// Deleting an item removes it from every plan and loadout too — a dangling
+  /// reference would be worse than losing the placement. Plans built *on* the
+  /// item go with it, since a plan with no container is meaningless.
   Future<void> deleteItem(String itemId) async {
     _items.removeWhere((item) => item.id == itemId);
+    _plans.removeWhere((plan) => plan.containerItemId == itemId);
 
-    for (var i = 0; i < _containers.length; i++) {
-      final container = _containers[i];
-      final removed = container.entries
-          .where((entry) => entry.itemId == itemId)
-          .map((entry) => entry.id)
+    for (var i = 0; i < _plans.length; i++) {
+      final record = _plans[i];
+      final removed = record.items
+          .where((planItem) => planItem.itemId == itemId)
+          .map((planItem) => planItem.id)
           .toSet();
       if (removed.isEmpty) continue;
 
-      _containers[i] = container.copyWith(
-        entries: container.entries
-            .where((entry) => entry.itemId != itemId)
+      _plans[i] = record.copyWith(
+        items: record.items
+            .where((planItem) => planItem.itemId != itemId)
             .toList(),
-        placements: {...container.placements}
+        placements: {...record.placements}
           ..removeWhere((entryId, _) => removed.contains(entryId)),
       );
     }
@@ -391,12 +439,6 @@ class GearStore extends ChangeNotifier {
 
     await _commit();
   }
-
-  /// How many containers currently hold this item — worth showing before a
-  /// delete removes it from all of them.
-  int usageCount(String itemId) => _containers
-      .where((c) => c.entries.any((entry) => entry.itemId == itemId))
-      .length;
 
   // ---------------------------------------------------------------- loadouts
 
@@ -417,7 +459,11 @@ class GearStore extends ChangeNotifier {
   }) async {
     final index = _loadouts.indexWhere((loadout) => loadout.id == loadoutId);
     if (index < 0) return;
-    _loadouts[index] = Loadout(id: loadoutId, name: name, itemIds: [...itemIds]);
+    _loadouts[index] = Loadout(
+      id: loadoutId,
+      name: name,
+      itemIds: [...itemIds],
+    );
     await _commit();
   }
 
@@ -426,33 +472,31 @@ class GearStore extends ChangeNotifier {
     await _commit();
   }
 
-  /// Saves what a container currently holds as a reusable loadout.
-  Future<Loadout> saveContainerAsLoadout(
-    String containerId, {
+  /// Saves what a plan currently holds as a reusable loadout. The container is
+  /// not included — a loadout is gear, and drops into any bag.
+  Future<Loadout> savePlanAsLoadout(
+    String planId, {
     required String name,
   }) async {
-    final container = containerById(containerId);
+    final record = planRecordById(planId);
     return addLoadout(
       name: name,
-      itemIds: container == null
+      itemIds: record == null
           ? const []
-          : container.entries.map((entry) => entry.itemId).toList(),
+          : record.items.map((planItem) => planItem.itemId).toList(),
     );
   }
 
-  /// Adds every item in a loadout to a container, placing each in free space so
-  /// any arrangement already made by hand survives. Returns the items that
-  /// found no room.
-  Future<List<GearItem>> applyLoadout(
-    String containerId,
-    String loadoutId,
-  ) async {
+  /// Adds every item in a loadout to a plan, placing each in free space so any
+  /// arrangement already made by hand survives. Returns the items that found no
+  /// room.
+  Future<List<GearItem>> applyLoadout(String planId, String loadoutId) async {
     final loadout = loadoutById(loadoutId);
     if (loadout == null) return const [];
 
     final unfitted = <GearItem>[];
     for (final itemId in loadout.itemIds) {
-      final placed = await addGear(containerId, itemId);
+      final placed = await addGear(planId, itemId);
       if (!placed) {
         final item = itemById(itemId);
         if (item != null) unfitted.add(item);
@@ -461,86 +505,80 @@ class GearStore extends ChangeNotifier {
     return unfitted;
   }
 
-  // -------------------------------------------------------------- containers
+  // ------------------------------------------------------------------- plans
 
-  Future<GearContainer> addContainer({
-    required String name,
-    required double width,
-    required double height,
-    double? depth,
+  /// Creates a plan around a container item. Returns null if that item is not
+  /// in the library.
+  Future<PlanRecord?> addPlan({
+    required String containerItemId,
+    String? name,
     double? tolerance,
   }) async {
-    final container = GearContainer(
+    final container = itemById(containerItemId);
+    if (container == null) return null;
+
+    final record = PlanRecord(
       id: _uuid.v4(),
-      name: name,
-      width: width,
-      height: height,
-      depth: depth,
-      colorValue: _nextColor(_containers.map((c) => c.colorValue)),
+      name: name ?? container.name,
+      containerItemId: containerItemId,
       tolerance: tolerance ?? _settings.defaultTolerance,
     );
-    _containers.add(container);
+    _plans.add(record);
     await _commit();
-    return container;
+    return record;
   }
 
-  Future<void> updateContainer(
-    String containerId, {
+  Future<void> updatePlan(
+    String planId, {
     required String name,
-    required double width,
-    required double height,
-    double? depth,
+    String? containerItemId,
     required double tolerance,
   }) async {
-    final container = containerById(containerId);
-    if (container == null) return;
+    final record = planRecordById(planId);
+    if (record == null) return;
 
-    final reshaped =
-        container.width != width ||
-        container.height != height ||
-        container.depth != depth ||
-        container.tolerance != tolerance;
+    final swapped =
+        containerItemId != null && containerItemId != record.containerItemId;
+    final reshaped = swapped || record.tolerance != tolerance;
 
-    var updated = container.copyWith(
+    var updated = record.copyWith(
       name: name,
-      width: width,
-      height: height,
-      depth: depth,
-      clearDepth: depth == null,
+      containerItemId: containerItemId,
       tolerance: tolerance,
     );
 
-    // Changing the shape or the tolerance invalidates every position, so lay it
+    // A different bag or a different gap invalidates every position, so lay it
     // out again rather than leaving gear hanging outside its container.
     if (reshaped) {
-      updated = updated.copyWith(
-        placements: packPlan(_planOf(updated)).placements,
-      );
+      final plan = _resolve(updated);
+      if (plan != null) {
+        updated = updated.copyWith(placements: packPlan(plan).placements);
+      }
     }
 
     _replace(updated);
     await _commit();
   }
 
-  Future<void> deleteContainer(String containerId) async {
-    _containers.removeWhere((c) => c.id == containerId);
+  Future<void> deletePlan(String planId) async {
+    _plans.removeWhere((plan) => plan.id == planId);
     await _commit();
   }
 
-  Future<GearContainer?> duplicateContainer(String containerId) async {
-    final container = containerById(containerId);
-    if (container == null) return null;
+  Future<PlanRecord?> duplicatePlan(String planId) async {
+    final record = planRecordById(planId);
+    if (record == null) return null;
 
     // Entries get fresh ids, and placements are re-keyed to match.
     final entryIds = <String, String>{};
-    final entries = container.entries.map((entry) {
+    final items = record.items.map((planItem) {
       final id = _uuid.v4();
-      entryIds[entry.id] = id;
-      return ContainerEntry(id: id, itemId: entry.itemId);
+      entryIds[planItem.id] = id;
+      return PlanItem(id: id, itemId: planItem.itemId);
     }).toList();
 
     final placements = <String, Placement>{};
-    container.placements.forEach((oldId, placement) {
+    record.placements.forEach((oldId, placement) {
       final newId = entryIds[oldId];
       if (newId == null) return;
       placements[newId] = Placement(
@@ -554,41 +592,40 @@ class GearStore extends ChangeNotifier {
       );
     });
 
-    final copy = GearContainer(
+    final copy = PlanRecord(
       id: _uuid.v4(),
-      name: '${container.name} copy',
-      width: container.width,
-      height: container.height,
-      depth: container.depth,
-      colorValue: container.colorValue,
-      tolerance: container.tolerance,
-      entries: entries,
+      name: '${record.name} copy',
+      containerItemId: record.containerItemId,
+      tolerance: record.tolerance,
+      items: items,
       placements: placements,
     );
 
-    _containers.add(copy);
+    _plans.add(copy);
     await _commit();
     return copy;
   }
 
-  // -------------------------------------------------------- gear in a container
+  // --------------------------------------------------------- gear in a plan
 
-  /// Puts a library item into a container, placing it in free space. Returns
-  /// false when it was added but found no room.
-  Future<bool> addGear(String containerId, String itemId) async {
-    final container = containerById(containerId);
-    if (container == null || itemById(itemId) == null) return false;
+  /// Puts a library item into a plan, placing it in free space. Returns false
+  /// when it was added but found no room.
+  Future<bool> addGear(String planId, String itemId) async {
+    final record = planRecordById(planId);
+    if (record == null || itemById(itemId) == null) return false;
 
-    final entry = ContainerEntry(id: _uuid.v4(), itemId: itemId);
-    var updated = container.copyWith(entries: [...container.entries, entry]);
+    final planItem = PlanItem(id: _uuid.v4(), itemId: itemId);
+    var updated = record.copyWith(items: [...record.items, planItem]);
 
-    final plan = _planOf(updated);
-    final planEntry = plan.entryById(entry.id);
-    final spot = planEntry == null ? null : findSpotFor(plan, planEntry);
+    final plan = _resolve(updated);
+    final entry = plan?.entryById(planItem.id);
+    final spot = (plan == null || entry == null)
+        ? null
+        : findSpotFor(plan, entry);
 
     if (spot != null) {
       updated = updated.copyWith(
-        placements: {...updated.placements, entry.id: spot},
+        placements: {...updated.placements, planItem.id: spot},
       );
     }
 
@@ -597,51 +634,50 @@ class GearStore extends ChangeNotifier {
     return spot != null;
   }
 
-  Future<void> removeEntry(String containerId, String entryId) async {
-    final container = containerById(containerId);
-    if (container == null) return;
+  Future<void> removeEntry(String planId, String entryId) async {
+    final record = planRecordById(planId);
+    if (record == null) return;
 
     _replace(
-      container.copyWith(
-        entries: container.entries
-            .where((entry) => entry.id != entryId)
-            .toList(),
-        placements: {...container.placements}..remove(entryId),
+      record.copyWith(
+        items: record.items.where((planItem) => planItem.id != entryId).toList(),
+        placements: {...record.placements}..remove(entryId),
       ),
     );
     await _commit();
   }
 
-  /// Lays the whole container out from scratch, discarding manual positions.
-  Future<PackResult> autoPack(String containerId) async {
-    final container = containerById(containerId);
-    if (container == null) {
+  /// Lays the whole plan out from scratch, discarding manual positions.
+  Future<PackResult> autoPack(String planId) async {
+    final record = planRecordById(planId);
+    final plan = record == null ? null : _resolve(record);
+    if (record == null || plan == null) {
       return const PackResult(placements: {}, unfitted: []);
     }
 
-    final result = packPlan(_planOf(container));
-    _replace(container.copyWith(placements: result.placements));
+    final result = packPlan(plan);
+    _replace(record.copyWith(placements: result.placements));
     await _commit();
     return result;
   }
 
-  /// Takes gear out of the diagram without removing it from the container.
-  Future<void> unplaceEntry(String containerId, String entryId) async {
-    final container = containerById(containerId);
-    if (container == null) return;
+  /// Takes gear out of the diagram without removing it from the plan.
+  Future<void> unplaceEntry(String planId, String entryId) async {
+    final record = planRecordById(planId);
+    if (record == null) return;
 
     _replace(
-      container.copyWith(placements: {...container.placements}..remove(entryId)),
+      record.copyWith(placements: {...record.placements}..remove(entryId)),
     );
     await _commit();
   }
 
   /// Puts an unplaced entry back on the diagram, if there is room.
-  Future<bool> placeEntry(String containerId, String entryId) async {
-    final container = containerById(containerId);
-    if (container == null) return false;
+  Future<bool> placeEntry(String planId, String entryId) async {
+    final record = planRecordById(planId);
+    final plan = record == null ? null : _resolve(record);
+    if (record == null || plan == null) return false;
 
-    final plan = _planOf(container);
     final entry = plan.entryById(entryId);
     if (entry == null) return false;
 
@@ -649,9 +685,7 @@ class GearStore extends ChangeNotifier {
     if (spot == null) return false;
 
     _replace(
-      container.copyWith(
-        placements: {...container.placements, entryId: spot},
-      ),
+      record.copyWith(placements: {...record.placements, entryId: spot}),
     );
     await _commit();
     return true;
@@ -663,32 +697,32 @@ class GearStore extends ChangeNotifier {
   ///
   /// Does not save: a drag fires this every frame. Call [flush] when it ends.
   void moveGear(
-    String containerId,
+    String planId,
     String entryId, {
     double dx = 0,
     double dy = 0,
     double dz = 0,
   }) {
-    final container = containerById(containerId);
-    if (container == null) return;
+    final record = planRecordById(planId);
+    final plan = record == null ? null : _resolve(record);
+    if (record == null || plan == null) return;
 
-    final placement = container.placements[entryId];
+    final placement = record.placements[entryId];
     if (placement == null) return;
 
-    final plan = _planOf(container);
-    final tolerance = container.tolerance;
+    final tolerance = record.tolerance;
     final depthTolerance = plan.isThreeDimensional ? tolerance : 0.0;
 
     final moved = placement.copyWith(
       x: _clamp(
         placement.x + dx,
         tolerance,
-        container.width - tolerance - placement.width,
+        plan.container.width - tolerance - placement.width,
       ),
       y: _clamp(
         placement.y + dy,
         tolerance,
-        container.height - tolerance - placement.height,
+        plan.container.height - tolerance - placement.height,
       ),
       z: _clamp(
         placement.z + dz,
@@ -698,9 +732,7 @@ class GearStore extends ChangeNotifier {
     );
 
     _replace(
-      container.copyWith(
-        placements: {...container.placements, entryId: moved},
-      ),
+      record.copyWith(placements: {...record.placements, entryId: moved}),
     );
     notifyListeners();
   }

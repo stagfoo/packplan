@@ -13,24 +13,27 @@ class GearData {
     this.settings = const AppSettings(),
     this.items = const [],
     this.loadouts = const [],
-    this.containers = const [],
+    this.plans = const [],
     this.customUnits = const [],
   });
 
   final AppSettings settings;
   final List<GearItem> items;
   final List<Loadout> loadouts;
-  final List<GearContainer> containers;
+  final List<PlanRecord> plans;
   final List<CustomUnit> customUnits;
 }
 
-/// The schema version written to the file. Bumped when the shape changes so
-/// [_migrate] knows what it is looking at.
-const int kSchemaVersion = 2;
+/// The schema version written to the file.
+///
+/// 1 — gear lived inside its container.
+/// 2 — gear moved into a shared library; containers held entries.
+/// 3 — containers became library items; a plan is one container plus gear.
+const int kSchemaVersion = 3;
 
 /// Reads and writes everything as one JSON file. There is never much data here
-/// — a few containers and a few dozen items — so rewriting the file on each
-/// change keeps things simple and atomic enough.
+/// — a few plans and a few dozen items — so rewriting the file on each change
+/// keeps things simple and atomic enough.
 class GearRepository {
   GearRepository({Directory? directory, Uuid? uuid})
     : _directory = directory,
@@ -71,21 +74,35 @@ class GearRepository {
     loadouts: ((json['loadouts'] ?? json['recipes']) as List<dynamic>? ?? [])
         .map((loadout) => Loadout.fromJson(loadout as Map<String, dynamic>))
         .toList(),
-    containers: (json['containers'] as List<dynamic>? ?? [])
-        .map((c) => GearContainer.fromJson(c as Map<String, dynamic>))
+    plans: (json['plans'] as List<dynamic>? ?? [])
+        .map((plan) => PlanRecord.fromJson(plan as Map<String, dynamic>))
         .toList(),
     customUnits: (json['customUnits'] as List<dynamic>? ?? [])
         .map((unit) => CustomUnit.fromJson(unit as Map<String, dynamic>))
         .toList(),
   );
 
-  /// Version 1 kept gear inside its container, with placements keyed by the
-  /// good's own id. Version 2 moved gear into a shared library, so each old
-  /// good becomes a library item plus one container entry pointing at it.
+  /// Brings an older file up to [kSchemaVersion], one step at a time.
   Map<String, dynamic> _migrate(Map<String, dynamic> json) {
-    final version = json['version'] as int? ?? 1;
-    if (version >= kSchemaVersion) return json;
+    var working = json;
+    var version = working['version'] as int? ?? 1;
 
+    if (version < 2) {
+      working = _liftGoodsIntoLibrary(working);
+      version = 2;
+    }
+    if (version < 3) {
+      working = _liftContainersIntoLibrary(working);
+      version = 3;
+    }
+
+    return {...working, 'version': kSchemaVersion};
+  }
+
+  /// Version 1 kept gear inside its container, with placements keyed by the
+  /// good's own id. Each old good becomes a library item plus one container
+  /// entry pointing at it.
+  Map<String, dynamic> _liftGoodsIntoLibrary(Map<String, dynamic> json) {
     final items = <Map<String, dynamic>>[];
     final containers = <Map<String, dynamic>>[];
 
@@ -94,7 +111,7 @@ class GearRepository {
       final goods = (container.remove('goods') as List<dynamic>? ?? [])
           .cast<Map<String, dynamic>>();
       final oldPlacements =
-          (container.remove('placements') as Map<String, dynamic>? ?? {});
+          container.remove('placements') as Map<String, dynamic>? ?? {};
 
       final entries = <Map<String, dynamic>>[];
       final placements = <String, dynamic>{};
@@ -124,13 +141,51 @@ class GearRepository {
     }
 
     return {
-      'version': kSchemaVersion,
+      ...json,
       'settings': json['settings'] ?? const <String, dynamic>{},
       'items': items,
-      'loadouts': json['loadouts'] ?? json['recipes'] ?? const <dynamic>[],
       'containers': containers,
-      'customUnits': json['customUnits'] ?? const <dynamic>[],
     };
+  }
+
+  /// Version 2 kept containers as their own kind of thing. A container is just
+  /// gear that happens to hold other gear, so each one becomes a library item
+  /// plus a plan built around it.
+  Map<String, dynamic> _liftContainersIntoLibrary(Map<String, dynamic> json) {
+    final items = [...(json['items'] as List<dynamic>? ?? [])];
+    final plans = <Map<String, dynamic>>[];
+
+    for (final raw in (json['containers'] as List<dynamic>? ?? [])) {
+      final container = raw as Map<String, dynamic>;
+
+      final itemId = _uuid.v4();
+      items.add({
+        'id': itemId,
+        'name': container['name'],
+        'width': container['width'],
+        'height': container['height'],
+        if (container['depth'] != null) 'depth': container['depth'],
+        'colorValue': container['colorValue'],
+        'rotatable': true,
+        'tags': <String>[],
+        'isContainer': true,
+      });
+
+      plans.add({
+        // The container's id carries over as the plan's, so nothing else that
+        // referenced it has to change.
+        'id': container['id'],
+        'name': container['name'],
+        'containerItemId': itemId,
+        'tolerance': container['tolerance'] ?? 0,
+        'items': container['entries'] ?? const <dynamic>[],
+        'placements': container['placements'] ?? const <String, dynamic>{},
+      });
+    }
+
+    final migrated = {...json, 'items': items, 'plans': plans};
+    migrated.remove('containers');
+    return migrated;
   }
 
   Future<void> save(GearData data) async {
@@ -146,7 +201,7 @@ class GearRepository {
         'settings': data.settings.toJson(),
         'items': data.items.map((item) => item.toJson()).toList(),
         'loadouts': data.loadouts.map((loadout) => loadout.toJson()).toList(),
-        'containers': data.containers.map((c) => c.toJson()).toList(),
+        'plans': data.plans.map((plan) => plan.toJson()).toList(),
         'customUnits': data.customUnits.map((u) => u.toJson()).toList(),
       }),
     );

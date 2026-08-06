@@ -3,10 +3,14 @@
 Plan how camping and EDC gear fits in your containers, before you start
 stuffing things into a bag.
 
-You keep a **library** of gear, measured once and tagged. You describe a
-**container** — a pack, a dry bag, a pouch, a pocket — and drop gear into it.
-PackPlan lays it out and draws the result, so you can see what fits and what
-has to stay behind.
+You keep a **library** of gear, measured once and tagged. A **plan** is one
+container from that library plus the gear you want in it. PackPlan lays it out
+and draws the result, so you can see what fits and what has to stay behind.
+
+A bag is just gear that happens to hold other gear — switch on **holds other
+gear** and you can build a plan around it. The same pouch can be gear inside
+your pack *and* the container of its own EDC plan. (Its contents are not
+counted when it is packed as gear; only its outside dimensions are.)
 
 ## How it works
 
@@ -34,21 +38,26 @@ mid-rearrange is miserable to use.
 Adding one piece later slots it into free space instead of re-packing, so
 adjustments you made by hand survive.
 
-**The library.** Gear is defined once and used in any number of containers, so
+**The library.** Gear is defined once and used in any number of plans, so
 correcting a measurement corrects it everywhere. Tag things (`camp`, `cook`,
 `edc`) and filter by tag — gear has to carry *every* selected tag, since
-narrowing is what makes tags useful once you own a few dozen things. A
-container can hold two of the same item, and each copy is placed separately.
+narrowing is what makes tags useful once you own a few dozen things. A plan can
+hold two of the same item, and each copy is placed separately.
 
-**Recipes.** A named set of gear — "Overnight hike", "Summer minimal" — that
-drops into any container in one go, placing each piece in free space so
-anything you arranged by hand stays put. You can also save what a container
-currently holds as a new recipe.
+Deleting gear removes it from every plan that uses it. Deleting a *container*
+also deletes the plans built on it, since a plan with nothing to pack into is
+meaningless.
 
-**Tolerance.** Per container, the gap kept clear of every wall *and* between
+**Loadouts.** A named set of gear — "Overnight hike", "Summer minimal" — that
+drops into any plan in one go, placing each piece in free space so anything you
+arranged by hand stays put. You can also save what a plan currently holds as a
+new loadout. A loadout is gear only, never a container, so it fits any bag.
+
+**Tolerance.** Per plan, the gap kept clear of every wall *and* between
 any two pieces of gear. Zero lets things sit flush, which fits on paper but
-rarely in the bag. The diagram outlines the margin it reserves. Changing it
-re-packs the container, because it invalidates every position. A flat plan's
+rarely in the bag. The diagram outlines the margin it reserves. Changing it — or
+swapping the plan's container, or resizing that container in the library —
+re-packs, because it invalidates every position. A flat plan's
 depth axis is a nominal 1 cm fiction, so tolerance deliberately does not eat
 into it.
 
@@ -93,17 +102,18 @@ Two details worth knowing:
 
 | File | What it holds |
 | --- | --- |
-| `lib/models.dart` | `GearItem`, `GearContainer`, `ContainerEntry`, `Recipe`, `Plan` |
+| `lib/models.dart` | `GearItem`, `PlanRecord`, `PlanItem`, `Loadout`, `Plan` |
 | `lib/units.dart` | Built-in and custom units, conversion and formatting |
 | `lib/packer.dart` | Packing, tolerance, placement-issue detection |
 | `lib/diagram.dart` | Coordinate mapping, painter, drag handling |
 | `lib/store.dart` | State and every mutation, saves after each change |
 | `lib/repository.dart` | The data file on disk, and schema migration |
 
-A container holds **entries**, not gear — each entry points at a library item
-and carries its own id, which is what lets one container hold two of the same
-thing. `Plan` is a container with its entries resolved against the library, and
-is what the packer and the diagram actually work with.
+A `PlanRecord` holds only ids: one container item, plus **entries** that each
+point at a library item and carry their own id — which is what lets one plan
+hold two of the same thing. `Plan` is a `PlanRecord` resolved against the
+library, and is what the packer and the diagram actually work with. No
+measurement is ever stored on a plan.
 
 Plan y is measured **up from the container floor**, so a packed container
 settles on its base instead of hanging from its lid. `ViewGeometry` does the
@@ -116,5 +126,8 @@ flutter pub get
 flutter run
 flutter test
 ```
+
+Saved data migrates forward automatically: v1 kept gear inside its container,
+v2 moved gear into a shared library, v3 made containers library gear too.
 
 Android only. Pushes and PRs build a debug APK — see `.github/workflows`.

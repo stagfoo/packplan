@@ -25,6 +25,24 @@ void main() {
   Future<void> seed(WidgetTester tester, Future<void> Function() work) =>
       tester.runAsync(work);
 
+  /// A container in the library plus a plan built around it.
+  Future<String> makePlan({
+    String name = 'daypack',
+    double width = 30,
+    double height = 40,
+    double? depth,
+  }) async {
+    final bag = await store.addItem(
+      name: name,
+      width: width,
+      height: height,
+      depth: depth,
+      isContainer: true,
+    );
+    final plan = await store.addPlan(containerItemId: bag.id, name: name);
+    return plan!.id;
+  }
+
   Future<void> pumpApp(WidgetTester tester) async {
     await tester.pumpWidget(PackPlanApp(store: store));
     await tester.pumpAndSettle();
@@ -33,7 +51,7 @@ void main() {
   testWidgets('the plans tab lists a container', (tester) async {
     await seed(tester, () async {
       await store.load();
-      await store.addContainer(name: 'daypack', width: 30, height: 40);
+      await makePlan(name: 'daypack', width: 30, height: 40);
     });
 
     await pumpApp(tester);
@@ -44,19 +62,14 @@ void main() {
   testWidgets('the plans tab loads with gear already packed', (tester) async {
     await seed(tester, () async {
       await store.load();
-      final pack = await store.addContainer(
-        name: 'daypack',
-        width: 30,
-        height: 40,
-        depth: 20,
-      );
+      final packId = await makePlan(name: 'daypack', width: 30, height: 40, depth: 20);
       final mug = await store.addItem(
         name: 'mug',
         width: 9,
         height: 9,
         depth: 9,
       );
-      await store.addGear(pack.id, mug.id);
+      await store.addGear(packId, mug.id);
     });
 
     await pumpApp(tester);
@@ -67,13 +80,9 @@ void main() {
   testWidgets('opening a plan shows its diagram', (tester) async {
     await seed(tester, () async {
       await store.load();
-      final pack = await store.addContainer(
-        name: 'daypack',
-        width: 30,
-        height: 40,
-      );
+      final packId = await makePlan(name: 'daypack', width: 30, height: 40);
       final mug = await store.addItem(name: 'mug', width: 9, height: 9);
-      await store.addGear(pack.id, mug.id);
+      await store.addGear(packId, mug.id);
     });
 
     await pumpApp(tester);
@@ -87,13 +96,9 @@ void main() {
   testWidgets('saving a container as a loadout does not crash', (tester) async {
     await seed(tester, () async {
       await store.load();
-      final pack = await store.addContainer(
-        name: 'daypack',
-        width: 30,
-        height: 40,
-      );
+      final packId = await makePlan(name: 'daypack', width: 30, height: 40);
       final mug = await store.addItem(name: 'mug', width: 9, height: 9);
-      await store.addGear(pack.id, mug.id);
+      await store.addGear(packId, mug.id);
     });
 
     await pumpApp(tester);
@@ -123,13 +128,9 @@ void main() {
   testWidgets('cancelling the loadout dialog does not crash', (tester) async {
     await seed(tester, () async {
       await store.load();
-      final pack = await store.addContainer(
-        name: 'daypack',
-        width: 30,
-        height: 40,
-      );
+      final packId = await makePlan(name: 'daypack', width: 30, height: 40);
       final mug = await store.addItem(name: 'mug', width: 9, height: 9);
-      await store.addGear(pack.id, mug.id);
+      await store.addGear(packId, mug.id);
     });
 
     await pumpApp(tester);
@@ -171,7 +172,7 @@ void main() {
   testWidgets('the gear picker opens and closes cleanly', (tester) async {
     await seed(tester, () async {
       await store.load();
-      await store.addContainer(name: 'daypack', width: 30, height: 40);
+      await makePlan(name: 'daypack', width: 30, height: 40);
       await store.addItem(name: 'mug', width: 9, height: 9);
     });
 

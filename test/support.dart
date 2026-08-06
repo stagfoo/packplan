@@ -9,6 +9,7 @@ GearItem gear(
   double? depth,
   bool rotatable = true,
   List<String> tags = const [],
+  bool isContainer = false,
 }) => GearItem(
   id: id,
   name: id,
@@ -18,6 +19,7 @@ GearItem gear(
   colorValue: kGearPalette.first,
   rotatable: rotatable,
   tags: tags,
+  isContainer: isContainer,
 );
 
 Plan planOf({
@@ -28,21 +30,27 @@ Plan planOf({
   List<GearItem> items = const [],
   Map<String, Placement> placements = const {},
 }) {
-  final container = GearContainer(
-    id: 'c',
-    name: 'container',
+  final container = gear(
+    'container',
     width: width,
     height: height,
     depth: depth,
-    colorValue: kGearPalette.first,
+    isContainer: true,
+  );
+
+  final record = PlanRecord(
+    id: 'p',
+    name: 'plan',
+    containerItemId: container.id,
     tolerance: tolerance,
-    entries: items
-        .map((item) => ContainerEntry(id: item.id, itemId: item.id))
+    items: items
+        .map((item) => PlanItem(id: item.id, itemId: item.id))
         .toList(),
     placements: placements,
   );
 
   return Plan(
+    record: record,
     container: container,
     entries: items
         .map(
@@ -58,7 +66,8 @@ Plan planOf({
 
 /// Rebuilds a plan with the given placements attached.
 Plan withPlacements(Plan plan, Map<String, Placement> placements) => Plan(
-  container: plan.container.copyWith(placements: placements),
+  record: plan.record.copyWith(placements: placements),
+  container: plan.container,
   entries: plan.entries
       .map(
         (entry) => PlanEntry(

@@ -158,13 +158,19 @@ class GearTile extends StatelessWidget {
     return ListTile(
       onTap: onTap,
       selected: selected,
+      // Gear that holds other gear is marked, since it is the only kind a plan
+      // can be built around.
       leading: Container(
         width: 28,
         height: 28,
+        alignment: Alignment.center,
         decoration: BoxDecoration(
           color: item.color,
           borderRadius: BorderRadius.circular(6),
         ),
+        child: item.isContainer
+            ? const Icon(Icons.backpack_outlined, size: 16, color: Colors.white)
+            : null,
       ),
       title: Text(item.name),
       subtitle: Text(

@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 
-import 'container_detail_screen.dart';
 import 'diagram.dart';
 import 'edit_sheets.dart';
 import 'models.dart';
+import 'plan_detail_screen.dart';
 import 'settings_screen.dart';
 import 'store.dart';
 import 'units.dart';
 
-/// The plans tab: every container you have set up.
-class ContainerListScreen extends StatelessWidget {
-  const ContainerListScreen({super.key, required this.store});
+/// The plans tab: every container-plus-gear combination you have set up.
+class PlanListScreen extends StatelessWidget {
+  const PlanListScreen({super.key, required this.store});
 
   final GearStore store;
 
@@ -19,6 +19,8 @@ class ContainerListScreen extends StatelessWidget {
     return ListenableBuilder(
       listenable: store,
       builder: (context, _) {
+        final plans = store.plans;
+
         return Scaffold(
           appBar: AppBar(
             title: const Text('Plans'),
@@ -38,24 +40,24 @@ class ContainerListScreen extends StatelessWidget {
             // All three tabs stay alive in an IndexedStack, so their buttons
             // share a Hero tag unless each is given its own.
             heroTag: 'fab-plans',
-            onPressed: () => _addContainer(context),
+            onPressed: () => _addPlan(context),
             icon: const Icon(Icons.add),
-            label: const Text('New container'),
+            label: const Text('New plan'),
           ),
           body: !store.isLoaded
               ? const Center(child: CircularProgressIndicator())
-              : store.containers.isEmpty
+              : plans.isEmpty
               ? const _EmptyState()
               : ListView.builder(
                   padding: const EdgeInsets.only(bottom: 88),
-                  itemCount: store.containers.length,
+                  itemCount: plans.length,
                   itemBuilder: (context, index) {
-                    final container = store.containers[index];
-                    return _ContainerTile(
-                      plan: store.planFor(container.id)!,
-                      onOpen: () => _open(context, container.id),
-                      onDuplicate: () => store.duplicateContainer(container.id),
-                      onDelete: () => _confirmDelete(context, container),
+                    final plan = plans[index];
+                    return _PlanTile(
+                      plan: plan,
+                      onOpen: () => _open(context, plan.id),
+                      onDuplicate: () => store.duplicatePlan(plan.id),
+                      onDelete: () => _confirmDelete(context, plan),
                     );
                   },
                 ),
@@ -64,50 +66,58 @@ class ContainerListScreen extends StatelessWidget {
     );
   }
 
-  void _open(BuildContext context, String containerId) {
+  void _open(BuildContext context, String planId) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => ContainerDetailScreen(
-          store: store,
-          containerId: containerId,
-        ),
+        builder: (context) => PlanDetailScreen(store: store, planId: planId),
       ),
     );
   }
 
-  Future<void> _addContainer(BuildContext context) async {
-    final draft = await showContainerSheet(
+  Future<void> _addPlan(BuildContext context) async {
+    final containers = store.containerItems;
+
+    if (containers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Add a bag to your gear first, with "Holds other gear" switched '
+            'on.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final draft = await showPlanSheet(
       context,
+      containers: containers,
       defaultTolerance: store.settings.defaultTolerance,
     );
     if (draft == null) return;
 
-    final container = await store.addContainer(
+    final plan = await store.addPlan(
+      containerItemId: draft.containerItemId,
       name: draft.name,
-      width: draft.width,
-      height: draft.height,
-      depth: draft.depth,
       tolerance: draft.tolerance,
     );
 
-    if (!context.mounted) return;
-    _open(context, container.id);
+    if (plan == null || !context.mounted) return;
+    _open(context, plan.id);
   }
 
-  Future<void> _confirmDelete(
-    BuildContext context,
-    GearContainer container,
-  ) async {
-    final count = container.entries.length;
+  Future<void> _confirmDelete(BuildContext context, Plan plan) async {
+    final count = plan.entries.length;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete ${container.name}?'),
+        title: Text('Delete ${plan.name}?'),
         content: Text(
           count == 0
-              ? 'This cannot be undone.'
-              : 'The $count ${count == 1 ? 'piece' : 'pieces'} of gear in it '
-                    'stay in your library. This cannot be undone.',
+              ? 'The container stays in your gear. This cannot be undone.'
+              : 'The container and the $count '
+                    '${count == 1 ? 'piece' : 'pieces'} of gear in it stay in '
+                    'your library. This cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -122,12 +132,12 @@ class ContainerListScreen extends StatelessWidget {
       ),
     );
 
-    if (confirmed ?? false) await store.deleteContainer(container.id);
+    if (confirmed ?? false) await store.deletePlan(plan.id);
   }
 }
 
-class _ContainerTile extends StatelessWidget {
-  const _ContainerTile({
+class _PlanTile extends StatelessWidget {
+  const _PlanTile({
     required this.plan,
     required this.onOpen,
     required this.onDuplicate,
@@ -150,6 +160,8 @@ class _ContainerTile extends StatelessWidget {
     final count = plan.entries.length;
 
     final notes = <String>[
+      // The plan can be named anything, so say which bag it actually packs.
+      container.name,
       formatDimensions(
         unit,
         width: container.width,
@@ -158,8 +170,8 @@ class _ContainerTile extends StatelessWidget {
       ),
       '$count ${count == 1 ? 'item' : 'items'}',
       '${(fill * 100).round()}% full',
-      if (container.tolerance > 0)
-        '${unit.formatWithSymbol(container.tolerance)} tolerance',
+      if (plan.tolerance > 0)
+        '${unit.formatWithSymbol(plan.tolerance)} tolerance',
       if (unpacked > 0) '$unpacked not packed',
     ];
 
@@ -178,7 +190,7 @@ class _ContainerTile extends StatelessWidget {
           ),
           child: Icon(Icons.backpack_outlined, color: container.color),
         ),
-        title: Text(container.name),
+        title: Text(plan.name),
         subtitle: Text(
           notes.join(' · '),
           style: theme.textTheme.bodySmall?.copyWith(
@@ -229,8 +241,9 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Add a pack, a dry bag or a pocket, then fill it with gear from '
-              'your library to see what fits.',
+              'A plan is one container plus the gear you want in it. Add a '
+              'pack, a dry bag or a pocket to your gear first — anything with '
+              '"Holds other gear" switched on can be planned around.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,

@@ -72,6 +72,7 @@ class GearItemDraft {
     this.depth,
     this.rotatable = true,
     this.tags = const [],
+    this.isContainer = false,
   });
 
   final String name;
@@ -80,22 +81,19 @@ class GearItemDraft {
   final double? depth;
   final bool rotatable;
   final List<String> tags;
+  final bool isContainer;
 }
 
-/// What the container sheet hands back. All lengths in centimetres.
-class ContainerDraft {
-  const ContainerDraft({
+/// What the plan sheet hands back. [tolerance] is in centimetres.
+class PlanDraft {
+  const PlanDraft({
     required this.name,
-    required this.width,
-    required this.height,
-    this.depth,
+    required this.containerItemId,
     this.tolerance = 0,
   });
 
   final String name;
-  final double width;
-  final double height;
-  final double? depth;
+  final String containerItemId;
   final double tolerance;
 }
 
@@ -153,6 +151,7 @@ class _GearItemSheetState extends State<GearItemSheet> {
   late final TextEditingController _tag;
   late bool _rotatable;
   late List<String> _tags;
+  late bool _isContainer;
 
   MeasurementUnit get _unit => UnitScope.of(context);
 
@@ -166,6 +165,7 @@ class _GearItemSheetState extends State<GearItemSheet> {
     _tag = TextEditingController();
     _rotatable = widget.initial?.rotatable ?? true;
     _tags = [...?widget.initial?.tags];
+    _isContainer = widget.initial?.isContainer ?? false;
   }
 
   var _didFillDimensions = false;
@@ -215,6 +215,7 @@ class _GearItemSheetState extends State<GearItemSheet> {
             : _unit.toCentimetres(double.parse(depthText)),
         rotatable: _rotatable,
         tags: _tags,
+        isContainer: _isContainer,
       ),
     );
   }
@@ -327,6 +328,16 @@ class _GearItemSheetState extends State<GearItemSheet> {
             title: const Text('Can be turned'),
             subtitle: const Text('Let the packer rotate this to make it fit'),
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _isContainer,
+            onChanged: (value) => setState(() => _isContainer = value),
+            title: const Text('Holds other gear'),
+            subtitle: const Text(
+              'Lets you build a plan around it. It can still be packed inside '
+              'something bigger.',
+            ),
+          ),
           const SizedBox(height: 16),
           FilledButton(onPressed: _submit, child: const Text('Save')),
         ],
@@ -347,186 +358,6 @@ Future<GearItemDraft?> showGearItemSheet(
     builder: (context) => UnitScope(
       unit: unit,
       child: GearItemSheet(initial: initial, knownTags: knownTags),
-    ),
-  );
-}
-
-// -------------------------------------------------------------- container
-
-class ContainerSheet extends StatefulWidget {
-  const ContainerSheet({super.key, this.initial, this.defaultTolerance = 0});
-
-  final GearContainer? initial;
-
-  /// Used for a new container, in centimetres.
-  final double defaultTolerance;
-
-  @override
-  State<ContainerSheet> createState() => _ContainerSheetState();
-}
-
-class _ContainerSheetState extends State<ContainerSheet> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _name;
-  late final TextEditingController _width;
-  late final TextEditingController _height;
-  late final TextEditingController _depth;
-  late final TextEditingController _tolerance;
-
-  MeasurementUnit get _unit => UnitScope.of(context);
-
-  @override
-  void initState() {
-    super.initState();
-    _name = TextEditingController(text: widget.initial?.name ?? '');
-    _width = TextEditingController();
-    _height = TextEditingController();
-    _depth = TextEditingController();
-    _tolerance = TextEditingController();
-  }
-
-  var _didFillDimensions = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_didFillDimensions) return;
-    _didFillDimensions = true;
-
-    final initial = widget.initial;
-    final tolerance = initial?.tolerance ?? widget.defaultTolerance;
-    if (tolerance > 0) _tolerance.text = _unit.format(tolerance);
-
-    if (initial == null) return;
-    _width.text = _unit.format(initial.width);
-    _height.text = _unit.format(initial.height);
-    _depth.text = initial.depth == null ? '' : _unit.format(initial.depth!);
-  }
-
-  @override
-  void dispose() {
-    _name.dispose();
-    _width.dispose();
-    _height.dispose();
-    _depth.dispose();
-    _tolerance.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
-
-    final depthText = _depth.text.trim();
-    final toleranceText = _tolerance.text.trim();
-    Navigator.of(context).pop(
-      ContainerDraft(
-        name: _name.text.trim(),
-        width: _unit.toCentimetres(double.parse(_width.text.trim())),
-        height: _unit.toCentimetres(double.parse(_height.text.trim())),
-        depth: depthText.isEmpty
-            ? null
-            : _unit.toCentimetres(double.parse(depthText)),
-        tolerance: toleranceText.isEmpty
-            ? 0
-            : _unit.toCentimetres(double.parse(toleranceText)),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Form(
-      key: _formKey,
-      child: _SheetShell(
-        title: widget.initial == null ? 'New container' : 'Edit container',
-        children: [
-          TextFormField(
-            controller: _name,
-            autofocus: widget.initial == null,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(
-              labelText: 'Name',
-              border: OutlineInputBorder(),
-            ),
-            validator: (value) =>
-                (value ?? '').trim().isEmpty ? 'Required' : null,
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: DimensionField(
-                  controller: _width,
-                  label: 'Width',
-                  validator: _requiredNumber,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: DimensionField(
-                  controller: _height,
-                  label: 'Height',
-                  validator: _requiredNumber,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: DimensionField(
-                  controller: _depth,
-                  label: 'Depth',
-                  hint: 'optional',
-                  validator: _optionalNumber,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Add a depth to get a side view and a volume check.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 16),
-          DimensionField(
-            controller: _tolerance,
-            label: 'Tolerance',
-            hint: '0',
-            validator: _optionalNonNegativeNumber,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Gap kept clear of every wall and between any two pieces of gear. '
-            'Leave empty to let things sit flush.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 20),
-          FilledButton(onPressed: _submit, child: const Text('Save')),
-        ],
-      ),
-    );
-  }
-}
-
-Future<ContainerDraft?> showContainerSheet(
-  BuildContext context, {
-  GearContainer? initial,
-  double defaultTolerance = 0,
-}) {
-  final unit = UnitScope.of(context);
-  return showModalBottomSheet<ContainerDraft>(
-    context: context,
-    isScrollControlled: true,
-    builder: (context) => UnitScope(
-      unit: unit,
-      child: ContainerSheet(
-        initial: initial,
-        defaultTolerance: defaultTolerance,
-      ),
     ),
   );
 }
@@ -868,6 +699,188 @@ Future<double?> showLengthDialog(
       label: label,
       unit: unit,
       initial: initial,
+    ),
+  );
+}
+
+// -------------------------------------------------------------------- plans
+
+/// Names a plan, picks the bag it packs into, and sets its tolerance.
+class PlanSheet extends StatefulWidget {
+  const PlanSheet({
+    super.key,
+    required this.containers,
+    this.initial,
+    this.defaultTolerance = 0,
+  });
+
+  /// Library gear marked as holding other gear.
+  final List<GearItem> containers;
+
+  final PlanRecord? initial;
+
+  /// Used for a new plan, in centimetres.
+  final double defaultTolerance;
+
+  @override
+  State<PlanSheet> createState() => _PlanSheetState();
+}
+
+class _PlanSheetState extends State<PlanSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _name;
+  late final TextEditingController _tolerance;
+  String? _containerItemId;
+
+  MeasurementUnit get _unit => UnitScope.of(context);
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.initial?.name ?? '');
+    _tolerance = TextEditingController();
+    _containerItemId =
+        widget.initial?.containerItemId ??
+        (widget.containers.length == 1 ? widget.containers.single.id : null);
+  }
+
+  var _didFill = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didFill) return;
+    _didFill = true;
+
+    final tolerance = widget.initial?.tolerance ?? widget.defaultTolerance;
+    if (tolerance > 0) _tolerance.text = _unit.format(tolerance);
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _tolerance.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
+
+    final containerItemId = _containerItemId;
+    if (containerItemId == null) return;
+
+    final toleranceText = _tolerance.text.trim();
+    Navigator.of(context).pop(
+      PlanDraft(
+        name: _name.text.trim(),
+        containerItemId: containerItemId,
+        tolerance: toleranceText.isEmpty
+            ? 0
+            : _unit.toCentimetres(double.parse(toleranceText)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Form(
+      key: _formKey,
+      child: _SheetShell(
+        title: widget.initial == null ? 'New plan' : 'Edit plan',
+        children: [
+          if (widget.containers.isEmpty)
+            Text(
+              'Nothing in your library holds gear yet. Add a bag, box or pouch '
+              'and switch on "Holds other gear".',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            )
+          else ...[
+            TextFormField(
+              controller: _name,
+              autofocus: widget.initial == null,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Plan name',
+                hintText: 'Overnight hike',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) =>
+                  (value ?? '').trim().isEmpty ? 'Required' : null,
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              initialValue: _containerItemId,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Pack into',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                for (final container in widget.containers)
+                  DropdownMenuItem(
+                    value: container.id,
+                    child: Text(
+                      '${container.name} · '
+                      '${formatDimensions(_unit, width: container.width, height: container.height, depth: container.depth)}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (value) => setState(() => _containerItemId = value),
+              validator: (value) => value == null ? 'Pick a container' : null,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Change this later to see the same kit in a different bag.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            DimensionField(
+              controller: _tolerance,
+              label: 'Tolerance',
+              hint: '0',
+              validator: _optionalNonNegativeNumber,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Gap kept clear of every wall and between any two pieces of '
+              'gear. Leave empty to let things sit flush.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton(onPressed: _submit, child: const Text('Save')),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+Future<PlanDraft?> showPlanSheet(
+  BuildContext context, {
+  required List<GearItem> containers,
+  PlanRecord? initial,
+  double defaultTolerance = 0,
+}) {
+  final unit = UnitScope.of(context);
+  return showModalBottomSheet<PlanDraft>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) => UnitScope(
+      unit: unit,
+      child: PlanSheet(
+        containers: containers,
+        initial: initial,
+        defaultTolerance: defaultTolerance,
+      ),
     ),
   );
 }

@@ -29,14 +29,22 @@ void main() {
     return reloaded;
   }
 
-  Future<GearContainer> makePack({double? depth, double? tolerance}) =>
-      store.addContainer(
-        name: 'daypack',
-        width: 30,
-        height: 40,
-        depth: depth,
-        tolerance: tolerance,
-      );
+  /// A container in the library plus a plan built around it — what used to be
+  /// a single "container" is now those two things.
+  Future<PlanRecord> makePack({double? depth, double? tolerance}) async {
+    final bag = await store.addItem(
+      name: 'daypack',
+      width: 30,
+      height: 40,
+      depth: depth,
+      isContainer: true,
+    );
+    return (await store.addPlan(
+      containerItemId: bag.id,
+      name: 'daypack',
+      tolerance: tolerance,
+    ))!;
+  }
 
   Future<GearItem> makeMug() =>
       store.addItem(name: 'mug', width: 9, height: 9, tags: ['cook']);
@@ -44,7 +52,7 @@ void main() {
   group('library', () {
     test('starts empty', () {
       expect(store.items, isEmpty);
-      expect(store.containers, isEmpty);
+      expect(store.planRecords, isEmpty);
       expect(store.loadouts, isEmpty);
       expect(store.isLoaded, isTrue);
     });
@@ -81,13 +89,15 @@ void main() {
       expect(store.allTags, ['cook', 'edc']);
     });
 
-    test('the same gear can be used by two containers', () async {
+    test('the same gear can be used by two plans', () async {
       final pack = await makePack();
-      final pouch = await store.addContainer(
+      final pouchBag = await store.addItem(
         name: 'pouch',
         width: 20,
         height: 20,
+        isContainer: true,
       );
+      final pouch = (await store.addPlan(containerItemId: pouchBag.id))!;
       final mug = await makeMug();
 
       await store.addGear(pack.id, mug.id);
@@ -162,36 +172,71 @@ void main() {
 
       await store.deleteItem(mug.id);
 
-      expect(store.items, isEmpty);
+      // The daypack itself is a library item too, and stays.
+      expect(store.items.map((i) => i.name), ['daypack']);
       expect(store.planFor(pack.id)!.entries, isEmpty);
-      expect(store.containerById(pack.id)!.placements, isEmpty);
+      expect(store.planRecordById(pack.id)!.placements, isEmpty);
       expect(store.loadoutById(loadout.id)!.itemIds, isEmpty);
     });
   });
 
   group('containers', () {
-    test('deleting removes the container but keeps the gear', () async {
+    test('deleting a plan keeps the container and the gear', () async {
       final pack = await makePack();
       final mug = await makeMug();
       await store.addGear(pack.id, mug.id);
 
-      await store.deleteContainer(pack.id);
+      await store.deletePlan(pack.id);
 
-      expect(store.containers, isEmpty);
-      expect(store.items, hasLength(1));
+      expect(store.planRecords, isEmpty);
+      expect(store.items.map((i) => i.name), ['daypack', 'mug']);
     });
 
-    test('resizing re-packs so nothing is left hanging outside', () async {
+    test('deleting the container gear deletes the plans built on it', () async {
+      final pack = await makePack();
+      final mug = await makeMug();
+      await store.addGear(pack.id, mug.id);
+      final bagId = store.planRecordById(pack.id)!.containerItemId;
+
+      expect(store.plansBuiltOn(bagId), hasLength(1));
+      await store.deleteItem(bagId);
+
+      // A plan with nothing to pack into is meaningless.
+      expect(store.planRecords, isEmpty);
+      expect(store.items.map((i) => i.name), ['mug']);
+    });
+
+    test('a container can be packed inside another plan as gear', () async {
+      final pack = await makePack();
+      final pouch = await store.addItem(
+        name: 'pouch',
+        width: 12,
+        height: 8,
+        isContainer: true,
+      );
+
+      expect(await store.addGear(pack.id, pouch.id), isTrue);
+      expect(
+        store.planFor(pack.id)!.entries.single.item.name,
+        'pouch',
+      );
+    });
+
+    test('shrinking the container re-packs every plan using it', () async {
       final pack = await makePack();
       final mat = await store.addItem(name: 'mat', width: 28, height: 30);
       await store.addGear(pack.id, mat.id);
+      expect(store.planFor(pack.id)!.packed, hasLength(1));
 
-      await store.updateContainer(
-        pack.id,
+      final bagId = store.planRecordById(pack.id)!.containerItemId;
+      await store.updateItem(
+        bagId,
         name: 'daypack',
         width: 20,
         height: 20,
-        tolerance: 0,
+        rotatable: true,
+        tags: const [],
+        isContainer: true,
       );
 
       expect(
@@ -200,40 +245,74 @@ void main() {
       );
     });
 
+    test('swapping the container re-packs into the new one', () async {
+      final pack = await makePack();
+      final mat = await store.addItem(name: 'mat', width: 28, height: 30);
+      await store.addGear(pack.id, mat.id);
+
+      final tiny = await store.addItem(
+        name: 'tiny',
+        width: 10,
+        height: 10,
+        isContainer: true,
+      );
+      await store.updatePlan(
+        pack.id,
+        name: 'daypack',
+        containerItemId: tiny.id,
+        tolerance: 0,
+      );
+
+      expect(store.planFor(pack.id)!.container.name, 'tiny');
+      expect(store.planFor(pack.id)!.unpacked, hasLength(1));
+    });
+
     test('raising the tolerance re-packs and can push gear out', () async {
       final pack = await makePack();
       final slab = await store.addItem(name: 'slab', width: 30, height: 40);
       await store.addGear(pack.id, slab.id);
       expect(store.planFor(pack.id)!.packed, hasLength(1));
 
-      await store.updateContainer(
-        pack.id,
-        name: 'daypack',
-        width: 30,
-        height: 40,
-        tolerance: 1,
-      );
+      await store.updatePlan(pack.id, name: 'daypack', tolerance: 1);
 
       // The slab exactly filled the pack, so any gap at all evicts it.
       expect(store.planFor(pack.id)!.unpacked, hasLength(1));
     });
 
-    test('new containers inherit the default tolerance', () async {
+    test('new plans inherit the default tolerance', () async {
       await store.setDefaultTolerance(1.5);
-      final pack = await store.addContainer(
+      final bag = await store.addItem(
         name: 'pack',
         width: 30,
         height: 40,
+        isContainer: true,
       );
+      final plan = await store.addPlan(containerItemId: bag.id);
 
-      expect(pack.tolerance, 1.5);
+      expect(plan!.tolerance, 1.5);
+    });
+
+    test('a plan cannot be built on gear that is not in the library', () async {
+      expect(await store.addPlan(containerItemId: 'ghost'), isNull);
+    });
+
+    test('a plan takes its name from its container by default', () async {
+      final bag = await store.addItem(
+        name: 'dry bag',
+        width: 30,
+        height: 40,
+        isContainer: true,
+      );
+      final plan = await store.addPlan(containerItemId: bag.id);
+
+      expect(plan!.name, 'dry bag');
     });
 
     test('changing the default leaves existing containers alone', () async {
       final pack = await makePack(tolerance: 0);
       await store.setDefaultTolerance(2);
 
-      expect(store.containerById(pack.id)!.tolerance, 0);
+      expect(store.planRecordById(pack.id)!.tolerance, 0);
     });
 
     test('duplicating copies the gear and the layout', () async {
@@ -242,7 +321,7 @@ void main() {
       await store.addGear(pack.id, mug.id);
       final original = store.planFor(pack.id)!.entries.single.placement!;
 
-      final copy = await store.duplicateContainer(pack.id);
+      final copy = await store.duplicatePlan(pack.id);
 
       expect(copy!.name, 'daypack copy');
       final copied = store.planFor(copy.id)!.entries.single;
@@ -261,7 +340,7 @@ void main() {
       await store.removeEntry(pack.id, entryId);
 
       expect(store.planFor(pack.id)!.entries, isEmpty);
-      expect(store.items, hasLength(1));
+      expect(store.items.map((i) => i.name), ['daypack', 'mug']);
     });
   });
 
@@ -285,11 +364,13 @@ void main() {
     });
 
     test('reports gear that found no room', () async {
-      final pack = await store.addContainer(
+      final tinyBag = await store.addItem(
         name: 'tiny',
         width: 10,
         height: 10,
+        isContainer: true,
       );
+      final pack = (await store.addPlan(containerItemId: tinyBag.id))!;
       final mug = await makeMug();
       final tent = await store.addItem(name: 'tent', width: 200, height: 200);
       final loadout = await store.addLoadout(
@@ -321,7 +402,7 @@ void main() {
       await store.addGear(pack.id, mug.id);
       await store.addGear(pack.id, mug.id);
 
-      final loadout = await store.saveContainerAsLoadout(
+      final loadout = await store.savePlanAsLoadout(
         pack.id,
         name: 'my kit',
       );
@@ -493,9 +574,9 @@ void main() {
       expect(item.tags, ['cook']);
       expect(item.rotatable, isFalse);
 
-      final container = reloaded.containerById(pack.id)!;
-      expect(container.depth, 20);
-      expect(container.tolerance, 1);
+      final record = reloaded.planRecordById(pack.id)!;
+      expect(reloaded.planFor(pack.id)!.container.depth, 20);
+      expect(record.tolerance, 1);
 
       final plan = reloaded.planFor(pack.id)!;
       expect(plan.packed, hasLength(1));
@@ -523,7 +604,7 @@ void main() {
 
       final recovered = await reload();
 
-      expect(recovered.containers, isEmpty);
+      expect(recovered.planRecords, isEmpty);
       expect(recovered.isLoaded, isTrue);
     });
   });
@@ -570,11 +651,15 @@ void main() {
 
       final migrated = await reload();
 
-      expect(migrated.items.single.name, 'mug');
-      expect(migrated.items.single.tags, isEmpty);
+      // The old good and the old container both land in the library now.
+      final mug = migrated.items.firstWhere((item) => item.name == 'mug');
+      expect(mug.tags, isEmpty);
+      expect(mug.isContainer, isFalse);
 
       final plan = migrated.planFor('container-1')!;
-      expect(plan.container.tolerance, 0);
+      expect(plan.tolerance, 0);
+      expect(plan.container.name, 'daypack');
+      expect(plan.container.isContainer, isTrue);
       expect(plan.entries, hasLength(1));
 
       final placement = plan.entries.single.placement!;
@@ -621,11 +706,13 @@ void main() {
               as Map<String, dynamic>;
 
       expect(json['version'], kSchemaVersion);
-      expect(json['items'], hasLength(1));
-      expect((json['containers'] as List).single['goods'], isNull);
+      // The old good, plus the old container lifted into the library.
+      expect(json['items'], hasLength(2));
+      expect(json['containers'], isNull);
+      expect((json['plans'] as List).single['containerItemId'], isNotNull);
 
       // And it still loads cleanly the second time round.
-      expect((await reload()).items, hasLength(1));
+      expect((await reload()).items, hasLength(2));
     });
 
     test('an empty version 1 file migrates to nothing', () async {
@@ -636,7 +723,7 @@ void main() {
       final migrated = await reload();
 
       expect(migrated.items, isEmpty);
-      expect(migrated.containers, isEmpty);
+      expect(migrated.planRecords, isEmpty);
     });
   });
 
@@ -816,5 +903,140 @@ void main() {
     final reloaded = await reload();
 
     expect(reloaded.loadouts.single.name, 'cook kit');
+  });
+
+  group('migration from the separate-containers schema', () {
+    test('an old container becomes library gear plus a plan', () async {
+      // Exactly what version 2 wrote.
+      await File('${directory.path}/packplan.json').writeAsString(
+        jsonEncode({
+          'version': 2,
+          'settings': {'unitId': 'inches', 'defaultTolerance': 1.0},
+          'items': [
+            {
+              'id': 'item-1',
+              'name': 'mug',
+              'width': 9.0,
+              'height': 9.0,
+              'colorValue': kGearPalette[1],
+              'rotatable': true,
+              'tags': ['cook'],
+            },
+          ],
+          'recipes': <dynamic>[],
+          'containers': [
+            {
+              'id': 'container-1',
+              'name': 'daypack',
+              'width': 30.0,
+              'height': 40.0,
+              'depth': 20.0,
+              'colorValue': kGearPalette.first,
+              'tolerance': 1.5,
+              'entries': [
+                {'id': 'entry-1', 'itemId': 'item-1'},
+              ],
+              'placements': {
+                'entry-1': {
+                  'entryId': 'entry-1',
+                  'x': 2.0,
+                  'y': 3.0,
+                  'z': 4.0,
+                  'width': 9.0,
+                  'height': 9.0,
+                  'depth': 1.0,
+                },
+              },
+            },
+          ],
+          'customUnits': <dynamic>[],
+        }),
+      );
+
+      final migrated = await reload();
+
+      // The bag is now gear, and can be packed into something else in turn.
+      final bag = migrated.items.firstWhere((item) => item.name == 'daypack');
+      expect(bag.isContainer, isTrue);
+      expect(bag.width, 30);
+      expect(bag.depth, 20);
+      expect(migrated.containerItems.map((i) => i.name), ['daypack']);
+
+      // The plan keeps the container's id, name, tolerance and layout.
+      final plan = migrated.planFor('container-1')!;
+      expect(plan.name, 'daypack');
+      expect(plan.tolerance, 1.5);
+      expect(plan.container.id, bag.id);
+      expect(plan.entries.single.item.name, 'mug');
+      expect(plan.entries.single.placement!.x, 2);
+
+      // Unrelated state rides through untouched.
+      expect(migrated.unit.symbol, 'in');
+      expect(migrated.settings.defaultTolerance, 1.0);
+    });
+
+    test('a version 1 file migrates all the way through', () async {
+      await File('${directory.path}/packplan.json').writeAsString(
+        jsonEncode({
+          'containers': [
+            {
+              'id': 'container-1',
+              'name': 'daypack',
+              'width': 30.0,
+              'height': 40.0,
+              'colorValue': kGearPalette.first,
+              'goods': [
+                {
+                  'id': 'good-1',
+                  'name': 'mug',
+                  'width': 9.0,
+                  'height': 9.0,
+                  'colorValue': kGearPalette[1],
+                  'rotatable': true,
+                },
+              ],
+              'placements': <String, dynamic>{},
+            },
+          ],
+        }),
+      );
+
+      final migrated = await reload();
+
+      expect(migrated.items.map((i) => i.name).toList()..sort(), [
+        'daypack',
+        'mug',
+      ]);
+      expect(migrated.planFor('container-1')!.container.name, 'daypack');
+      expect(migrated.planFor('container-1')!.entries.single.item.name, 'mug');
+    });
+
+    test('migrating twice is a no-op', () async {
+      await File('${directory.path}/packplan.json').writeAsString(
+        jsonEncode({
+          'version': 2,
+          'items': <dynamic>[],
+          'containers': [
+            {
+              'id': 'container-1',
+              'name': 'daypack',
+              'width': 30.0,
+              'height': 40.0,
+              'colorValue': kGearPalette.first,
+              'tolerance': 0,
+              'entries': <dynamic>[],
+              'placements': <String, dynamic>{},
+            },
+          ],
+        }),
+      );
+
+      final once = await reload();
+      await once.flush();
+      final twice = await reload();
+
+      expect(twice.items, hasLength(1));
+      expect(twice.planRecords, hasLength(1));
+    });
   });
 }

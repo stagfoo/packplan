@@ -17,8 +17,8 @@ class Placement {
     required this.depth,
   });
 
-  /// The container entry this positions — not the library item, so two of the
-  /// same thing can sit in different places.
+  /// The plan entry this positions — not the library item, so two of the same
+  /// thing can sit in different places.
   final String entryId;
 
   final double x;
@@ -77,8 +77,11 @@ class Placement {
   );
 }
 
-/// A piece of gear in your library, defined once and used in any number of
-/// containers.
+/// Anything in your gear library — a stove, a map, or a dry bag.
+///
+/// A bag is gear too: it goes inside a bigger pack, and it holds things. That
+/// is what [isContainer] is for. It does not make an item special, it only
+/// means a plan is allowed to be built around it.
 class GearItem {
   const GearItem({
     required this.id,
@@ -89,6 +92,7 @@ class GearItem {
     required this.colorValue,
     this.rotatable = true,
     this.tags = const [],
+    this.isContainer = false,
   });
 
   final String id;
@@ -108,6 +112,11 @@ class GearItem {
   /// Lowercase, deduplicated. See [normaliseTags].
   final List<String> tags;
 
+  /// Whether a plan can be built around this. Container gear can still be
+  /// packed inside another plan like anything else — its own contents are not
+  /// counted, only its outside dimensions.
+  final bool isContainer;
+
   Color get color => Color(colorValue);
 
   bool get hasDepth => depth != null;
@@ -115,6 +124,9 @@ class GearItem {
   double get area => width * height;
 
   double get volume => width * height * (depth ?? 0);
+
+  /// Interior volume, or null for flat gear.
+  double? get capacity => depth == null ? null : width * height * depth!;
 
   /// The length along one axis, or null for depth on flat gear.
   double? dimension(GearAxis axis) => switch (axis) {
@@ -145,6 +157,7 @@ class GearItem {
     int? colorValue,
     bool? rotatable,
     List<String>? tags,
+    bool? isContainer,
   }) => GearItem(
     id: id,
     name: name ?? this.name,
@@ -154,6 +167,7 @@ class GearItem {
     colorValue: colorValue ?? this.colorValue,
     rotatable: rotatable ?? this.rotatable,
     tags: tags ?? this.tags,
+    isContainer: isContainer ?? this.isContainer,
   );
 
   Map<String, dynamic> toJson() => {
@@ -165,6 +179,7 @@ class GearItem {
     'colorValue': colorValue,
     'rotatable': rotatable,
     'tags': tags,
+    'isContainer': isContainer,
   };
 
   factory GearItem.fromJson(Map<String, dynamic> json) => GearItem(
@@ -178,6 +193,7 @@ class GearItem {
     tags: normaliseTags(
       (json['tags'] as List<dynamic>? ?? []).map((tag) => tag as String),
     ),
+    isContainer: json['isContainer'] as bool? ?? false,
   );
 }
 
@@ -193,108 +209,89 @@ List<String> normaliseTags(Iterable<String> tags) {
   return cleaned;
 }
 
-/// One occurrence of a library item inside a container. Has its own id so a
-/// container can hold two of the same thing in different places.
-class ContainerEntry {
-  const ContainerEntry({required this.id, required this.itemId});
+/// One occurrence of a library item inside a plan. Has its own id so a plan can
+/// hold two of the same thing in different places.
+class PlanItem {
+  const PlanItem({required this.id, required this.itemId});
 
   final String id;
   final String itemId;
 
   Map<String, dynamic> toJson() => {'id': id, 'itemId': itemId};
 
-  factory ContainerEntry.fromJson(Map<String, dynamic> json) => ContainerEntry(
+  factory PlanItem.fromJson(Map<String, dynamic> json) => PlanItem(
     id: json['id'] as String,
     itemId: json['itemId'] as String,
   );
 }
 
-/// A bag, box, pouch or pocket, and what you want to get into it.
-class GearContainer {
-  const GearContainer({
+/// A plan as stored: one container, plus the gear you want to get into it.
+///
+/// The container and every piece of gear are ids into the library, so a plan
+/// holds no measurements of its own. Correcting a measurement once corrects
+/// every plan that uses it.
+class PlanRecord {
+  const PlanRecord({
     required this.id,
     required this.name,
-    required this.width,
-    required this.height,
-    this.depth,
-    required this.colorValue,
+    required this.containerItemId,
     this.tolerance = 0,
-    this.entries = const [],
+    this.items = const [],
     this.placements = const {},
   });
 
   final String id;
   final String name;
-  final double width;
-  final double height;
-  final double? depth;
-  final int colorValue;
+
+  /// The library item this plan packs into. Expected to have
+  /// [GearItem.isContainer] set, though nothing breaks if it does not.
+  final String containerItemId;
 
   /// Minimum gap kept clear of every wall and between any two pieces of gear.
-  /// Zero means gear may sit flush.
+  /// Zero means gear may sit flush. Lives on the plan rather than the container
+  /// because it describes how you are packing this time, not the bag itself.
   final double tolerance;
 
-  final List<ContainerEntry> entries;
+  final List<PlanItem> items;
 
   /// Placements by *entry* id. An entry with no placement is not packed.
   final Map<String, Placement> placements;
 
-  Color get color => Color(colorValue);
-
-  bool get hasDepth => depth != null;
-
-  double get area => width * height;
-
-  double? get volume => depth == null ? null : width * height * depth!;
-
-  GearContainer copyWith({
+  PlanRecord copyWith({
     String? name,
-    double? width,
-    double? height,
-    double? depth,
-    bool clearDepth = false,
-    int? colorValue,
+    String? containerItemId,
     double? tolerance,
-    List<ContainerEntry>? entries,
+    List<PlanItem>? items,
     Map<String, Placement>? placements,
-  }) => GearContainer(
+  }) => PlanRecord(
     id: id,
     name: name ?? this.name,
-    width: width ?? this.width,
-    height: height ?? this.height,
-    depth: clearDepth ? null : (depth ?? this.depth),
-    colorValue: colorValue ?? this.colorValue,
+    containerItemId: containerItemId ?? this.containerItemId,
     tolerance: tolerance ?? this.tolerance,
-    entries: entries ?? this.entries,
+    items: items ?? this.items,
     placements: placements ?? this.placements,
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
-    'width': width,
-    'height': height,
-    if (depth != null) 'depth': depth,
-    'colorValue': colorValue,
+    'containerItemId': containerItemId,
     'tolerance': tolerance,
-    'entries': entries.map((entry) => entry.toJson()).toList(),
+    'items': items.map((item) => item.toJson()).toList(),
     'placements': placements.map(
       (entryId, placement) => MapEntry(entryId, placement.toJson()),
     ),
   };
 
-  factory GearContainer.fromJson(Map<String, dynamic> json) {
+  factory PlanRecord.fromJson(Map<String, dynamic> json) {
     final rawPlacements = json['placements'] as Map<String, dynamic>? ?? {};
-    return GearContainer(
+    return PlanRecord(
       id: json['id'] as String,
       name: json['name'] as String,
-      width: (json['width'] as num).toDouble(),
-      height: (json['height'] as num).toDouble(),
-      depth: (json['depth'] as num?)?.toDouble(),
-      colorValue: json['colorValue'] as int,
+      containerItemId: json['containerItemId'] as String,
       tolerance: (json['tolerance'] as num?)?.toDouble() ?? 0,
-      entries: (json['entries'] as List<dynamic>? ?? [])
-          .map((entry) => ContainerEntry.fromJson(entry as Map<String, dynamic>))
+      items: (json['items'] as List<dynamic>? ?? [])
+          .map((item) => PlanItem.fromJson(item as Map<String, dynamic>))
           .toList(),
       placements: rawPlacements.map(
         (entryId, placement) => MapEntry(
@@ -316,11 +313,7 @@ class Loadout {
   /// May contain the same item twice, meaning "pack two of these".
   final List<String> itemIds;
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'itemIds': itemIds,
-  };
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'itemIds': itemIds};
 
   factory Loadout.fromJson(Map<String, dynamic> json) => Loadout(
     id: json['id'] as String,
@@ -333,16 +326,13 @@ class Loadout {
 
 /// App-wide preferences.
 class AppSettings {
-  const AppSettings({
-    this.unitId = 'centimetres',
-    this.defaultTolerance = 0,
-  });
+  const AppSettings({this.unitId = 'centimetres', this.defaultTolerance = 0});
 
   /// Either a built-in unit's id or a [CustomUnit]'s. Held as an id rather than
   /// a unit so a custom unit stays resolvable after its length changes.
   final String unitId;
 
-  /// Tolerance given to newly created containers, in centimetres.
+  /// Tolerance given to newly created plans, in centimetres.
   final double defaultTolerance;
 
   AppSettings copyWith({String? unitId, double? defaultTolerance}) =>
@@ -364,7 +354,7 @@ class AppSettings {
   );
 }
 
-/// A container entry with its library item resolved.
+/// A plan entry with its library item resolved.
 class PlanEntry {
   const PlanEntry({
     required this.id,
@@ -372,7 +362,7 @@ class PlanEntry {
     required this.placement,
   });
 
-  /// The container entry id — what placements are keyed by.
+  /// The plan entry id — what placements are keyed by.
   final String id;
   final GearItem item;
   final Placement? placement;
@@ -380,27 +370,34 @@ class PlanEntry {
   bool get isPacked => placement != null;
 }
 
-/// A container with its gear resolved from the library. This is what the
-/// packer and the diagram work with; [GearContainer] alone only knows ids.
+/// A plan with its container and gear resolved from the library. This is what
+/// the packer and the diagram work with; [PlanRecord] alone only knows ids.
 class Plan {
-  const Plan({required this.container, required this.entries});
+  const Plan({
+    required this.record,
+    required this.container,
+    required this.entries,
+  });
 
-  final GearContainer container;
+  final PlanRecord record;
+
+  /// The library item being packed into.
+  final GearItem container;
+
   final List<PlanEntry> entries;
 
-  String get id => container.id;
-  String get name => container.name;
-  double get tolerance => container.tolerance;
+  String get id => record.id;
+  String get name => record.name;
+  double get tolerance => record.tolerance;
 
   /// The plan is three-dimensional only when the container and at least one
   /// piece of gear carry a depth. Otherwise the side view has nothing to show.
   bool get isThreeDimensional =>
       container.hasDepth && entries.any((entry) => entry.item.hasDepth);
 
-  /// The depth axis the packer works in — a nominal 1 cm for flat plans, so
-  /// the same three-dimensional code handles both.
-  double get workingDepth =>
-      isThreeDimensional ? container.depth! : 1.0;
+  /// The depth axis the packer works in — a nominal 1 cm for flat plans, so the
+  /// same three-dimensional code handles both.
+  double get workingDepth => isThreeDimensional ? container.depth! : 1.0;
 
   List<PlanEntry> get packed => entries.where((e) => e.isPacked).toList();
 
@@ -415,7 +412,7 @@ class Plan {
 
   /// Fraction of container volume used, or null when this is a flat plan.
   double? get volumeUsed {
-    final total = container.volume;
+    final total = container.capacity;
     if (total == null || total <= 0) return null;
     final used = packed.fold<double>(0, (sum, e) => sum + e.item.volume);
     return used / total;
@@ -429,8 +426,8 @@ class Plan {
   }
 }
 
-/// The palette gear and containers are coloured from. Kept small so a plan
-/// stays readable — the point is telling shapes apart, not decoration.
+/// The palette gear is coloured from. Kept small so a plan stays readable —
+/// the point is telling shapes apart, not decoration.
 const List<int> kGearPalette = [
   0xFF3B82F6, // blue
   0xFFF59E0B, // amber

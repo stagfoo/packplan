@@ -35,6 +35,9 @@ class ContainerListScreen extends StatelessWidget {
             ],
           ),
           floatingActionButton: FloatingActionButton.extended(
+            // All three tabs stay alive in an IndexedStack, so their buttons
+            // share a Hero tag unless each is given its own.
+            heroTag: 'fab-plans',
             onPressed: () => _addContainer(context),
             icon: const Icon(Icons.add),
             label: const Text('New container'),

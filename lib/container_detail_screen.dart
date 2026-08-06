@@ -64,18 +64,18 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
           ),
           PopupMenuButton<String>(
             onSelected: (value) => switch (value) {
-              'recipe' => _applyRecipe(plan),
-              'save-recipe' => _saveAsRecipe(plan),
+              'loadout' => _applyLoadout(plan),
+              'save-loadout' => _saveAsLoadout(plan),
               _ => null,
             },
             itemBuilder: (context) => [
               const PopupMenuItem(
-                value: 'recipe',
-                child: Text('Add from recipe'),
+                value: 'loadout',
+                child: Text('Add from loadout'),
               ),
               const PopupMenuItem(
-                value: 'save-recipe',
-                child: Text('Save as recipe'),
+                value: 'save-loadout',
+                child: Text('Save as loadout'),
               ),
             ],
           ),
@@ -254,44 +254,44 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
     _report("No room for ${unfitted.join(', ')}. Try auto-pack.");
   }
 
-  Future<void> _applyRecipe(Plan plan) async {
-    final recipes = widget.store.recipes;
-    if (recipes.isEmpty) {
-      _report('No recipes yet. Make one from the Recipes tab.');
+  Future<void> _applyLoadout(Plan plan) async {
+    final loadouts = widget.store.loadouts;
+    if (loadouts.isEmpty) {
+      _report('No loadouts yet. Make one from the Loadouts tab.');
       return;
     }
 
-    final recipeId = await showModalBottomSheet<String>(
+    final loadoutId = await showModalBottomSheet<String>(
       context: context,
       builder: (context) => SafeArea(
         child: ListView(
           shrinkWrap: true,
           children: [
-            for (final recipe in recipes)
+            for (final loadout in loadouts)
               ListTile(
-                title: Text(recipe.name),
+                title: Text(loadout.name),
                 subtitle: Text(
-                  '${recipe.itemIds.length} '
-                  '${recipe.itemIds.length == 1 ? 'item' : 'items'}',
+                  '${loadout.itemIds.length} '
+                  '${loadout.itemIds.length == 1 ? 'item' : 'items'}',
                 ),
-                onTap: () => Navigator.of(context).pop(recipe.id),
+                onTap: () => Navigator.of(context).pop(loadout.id),
               ),
           ],
         ),
       ),
     );
-    if (recipeId == null) return;
+    if (loadoutId == null) return;
 
-    final unfitted = await widget.store.applyRecipe(plan.id, recipeId);
+    final unfitted = await widget.store.applyLoadout(plan.id, loadoutId);
     _report(
       unfitted.isEmpty
-          ? 'Recipe added, everything fits.'
-          : "Recipe added. No room for "
+          ? 'Loadout added, everything fits.'
+          : "Loadout added. No room for "
                 "${unfitted.map((i) => i.name).join(', ')}.",
     );
   }
 
-  Future<void> _saveAsRecipe(Plan plan) async {
+  Future<void> _saveAsLoadout(Plan plan) async {
     if (plan.entries.isEmpty) {
       _report('Nothing in this container to save.');
       return;
@@ -299,13 +299,13 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
 
     final name = await showNameDialog(
       context,
-      title: 'Save as recipe',
+      title: 'Save as loadout',
       initial: plan.name,
-      label: 'Recipe name',
+      label: 'Loadout name',
     );
     if (name == null) return;
 
-    await widget.store.saveContainerAsRecipe(plan.id, name: name);
+    await widget.store.saveContainerAsLoadout(plan.id, name: name);
     _report('Saved "$name".');
   }
 

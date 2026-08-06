@@ -12,14 +12,14 @@ class GearData {
   const GearData({
     this.settings = const AppSettings(),
     this.items = const [],
-    this.recipes = const [],
+    this.loadouts = const [],
     this.containers = const [],
     this.customUnits = const [],
   });
 
   final AppSettings settings;
   final List<GearItem> items;
-  final List<Recipe> recipes;
+  final List<Loadout> loadouts;
   final List<GearContainer> containers;
   final List<CustomUnit> customUnits;
 }
@@ -67,8 +67,9 @@ class GearRepository {
     items: (json['items'] as List<dynamic>? ?? [])
         .map((item) => GearItem.fromJson(item as Map<String, dynamic>))
         .toList(),
-    recipes: (json['recipes'] as List<dynamic>? ?? [])
-        .map((recipe) => Recipe.fromJson(recipe as Map<String, dynamic>))
+    // Loadouts were called recipes in the first release.
+    loadouts: ((json['loadouts'] ?? json['recipes']) as List<dynamic>? ?? [])
+        .map((loadout) => Loadout.fromJson(loadout as Map<String, dynamic>))
         .toList(),
     containers: (json['containers'] as List<dynamic>? ?? [])
         .map((c) => GearContainer.fromJson(c as Map<String, dynamic>))
@@ -126,7 +127,7 @@ class GearRepository {
       'version': kSchemaVersion,
       'settings': json['settings'] ?? const <String, dynamic>{},
       'items': items,
-      'recipes': json['recipes'] ?? const <dynamic>[],
+      'loadouts': json['loadouts'] ?? json['recipes'] ?? const <dynamic>[],
       'containers': containers,
       'customUnits': json['customUnits'] ?? const <dynamic>[],
     };
@@ -144,7 +145,7 @@ class GearRepository {
         'version': kSchemaVersion,
         'settings': data.settings.toJson(),
         'items': data.items.map((item) => item.toJson()).toList(),
-        'recipes': data.recipes.map((recipe) => recipe.toJson()).toList(),
+        'loadouts': data.loadouts.map((loadout) => loadout.toJson()).toList(),
         'containers': data.containers.map((c) => c.toJson()).toList(),
         'customUnits': data.customUnits.map((u) => u.toJson()).toList(),
       }),

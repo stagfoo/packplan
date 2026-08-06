@@ -6,8 +6,8 @@ import 'models.dart';
 import 'store.dart';
 
 /// Saved kits — a named set of gear you pack again and again.
-class RecipesScreen extends StatelessWidget {
-  const RecipesScreen({super.key, required this.store});
+class LoadoutsScreen extends StatelessWidget {
+  const LoadoutsScreen({super.key, required this.store});
 
   final GearStore store;
 
@@ -17,20 +17,21 @@ class RecipesScreen extends StatelessWidget {
       listenable: store,
       builder: (context, _) {
         return Scaffold(
-          appBar: AppBar(title: const Text('Recipes')),
+          appBar: AppBar(title: const Text('Loadouts')),
           floatingActionButton: FloatingActionButton.extended(
+            heroTag: 'fab-loadouts',
             onPressed: () => _create(context),
             icon: const Icon(Icons.add),
-            label: const Text('New recipe'),
+            label: const Text('New loadout'),
           ),
-          body: store.recipes.isEmpty
-              ? const _EmptyRecipes()
+          body: store.loadouts.isEmpty
+              ? const _EmptyLoadouts()
               : ListView.builder(
                   padding: const EdgeInsets.only(bottom: 88),
-                  itemCount: store.recipes.length,
+                  itemCount: store.loadouts.length,
                   itemBuilder: (context, index) {
-                    final recipe = store.recipes[index];
-                    final names = recipe.itemIds
+                    final loadout = store.loadouts[index];
+                    final names = loadout.itemIds
                         .map((id) => store.itemById(id)?.name)
                         .whereType<String>()
                         .toList();
@@ -38,8 +39,8 @@ class RecipesScreen extends StatelessWidget {
                     return Card(
                       margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
                       child: ListTile(
-                        onTap: () => _edit(context, recipe),
-                        title: Text(recipe.name),
+                        onTap: () => _edit(context, loadout),
+                        title: Text(loadout.name),
                         subtitle: Text(
                           names.isEmpty
                               ? 'Empty'
@@ -52,7 +53,7 @@ class RecipesScreen extends StatelessWidget {
                         trailing: IconButton(
                           tooltip: 'Delete',
                           icon: const Icon(Icons.delete_outline),
-                          onPressed: () => _delete(context, recipe),
+                          onPressed: () => _delete(context, loadout),
                         ),
                       ),
                     );
@@ -66,32 +67,32 @@ class RecipesScreen extends StatelessWidget {
   Future<void> _create(BuildContext context) async {
     final name = await showNameDialog(
       context,
-      title: 'New recipe',
-      label: 'Recipe name',
+      title: 'New loadout',
+      label: 'Loadout name',
     );
     if (name == null || !context.mounted) return;
 
-    final recipe = await store.addRecipe(name: name);
+    final loadout = await store.addLoadout(name: name);
     if (!context.mounted) return;
-    await _edit(context, recipe);
+    await _edit(context, loadout);
   }
 
-  Future<void> _edit(BuildContext context, Recipe recipe) async {
+  Future<void> _edit(BuildContext context, Loadout loadout) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => RecipeDetailScreen(
+        builder: (context) => LoadoutDetailScreen(
           store: store,
-          recipeId: recipe.id,
+          loadoutId: loadout.id,
         ),
       ),
     );
   }
 
-  Future<void> _delete(BuildContext context, Recipe recipe) async {
+  Future<void> _delete(BuildContext context, Loadout loadout) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete ${recipe.name}?'),
+        title: Text('Delete ${loadout.name}?'),
         content: const Text(
           'The gear itself stays in your library. This cannot be undone.',
         ),
@@ -108,51 +109,52 @@ class RecipesScreen extends StatelessWidget {
       ),
     );
 
-    if (confirmed ?? false) await store.deleteRecipe(recipe.id);
+    if (confirmed ?? false) await store.deleteLoadout(loadout.id);
   }
 }
 
-/// Edits what is in one recipe.
-class RecipeDetailScreen extends StatelessWidget {
-  const RecipeDetailScreen({
+/// Edits what is in one loadout.
+class LoadoutDetailScreen extends StatelessWidget {
+  const LoadoutDetailScreen({
     super.key,
     required this.store,
-    required this.recipeId,
+    required this.loadoutId,
   });
 
   final GearStore store;
-  final String recipeId;
+  final String loadoutId;
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: store,
       builder: (context, _) {
-        final recipe = store.recipeById(recipeId);
-        if (recipe == null) {
+        final loadout = store.loadoutById(loadoutId);
+        if (loadout == null) {
           return const Scaffold(
-            body: Center(child: Text('This recipe was deleted.')),
+            body: Center(child: Text('This loadout was deleted.')),
           );
         }
 
-        final items = recipe.itemIds
+        final items = loadout.itemIds
             .map((id) => store.itemById(id))
             .whereType<GearItem>()
             .toList();
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(recipe.name),
+            title: Text(loadout.name),
             actions: [
               IconButton(
                 tooltip: 'Rename',
                 icon: const Icon(Icons.edit_outlined),
-                onPressed: () => _rename(context, recipe),
+                onPressed: () => _rename(context, loadout),
               ),
             ],
           ),
           floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => _addGear(context, recipe),
+            heroTag: 'fab-loadout-detail',
+            onPressed: () => _addGear(context, loadout),
             icon: const Icon(Icons.add),
             label: const Text('Add gear'),
           ),
@@ -161,7 +163,7 @@ class RecipeDetailScreen extends StatelessWidget {
                   child: Padding(
                     padding: EdgeInsets.all(32),
                     child: Text(
-                      'Nothing in this recipe yet. Add gear from your library.',
+                      'Nothing in this loadout yet. Add gear from your library.',
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -174,7 +176,7 @@ class RecipeDetailScreen extends StatelessWidget {
                     trailing: IconButton(
                       tooltip: 'Remove',
                       icon: const Icon(Icons.close),
-                      onPressed: () => _removeAt(recipe, index),
+                      onPressed: () => _removeAt(loadout, index),
                     ),
                   ),
                 ),
@@ -183,46 +185,46 @@ class RecipeDetailScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _rename(BuildContext context, Recipe recipe) async {
+  Future<void> _rename(BuildContext context, Loadout loadout) async {
     final name = await showNameDialog(
       context,
-      title: 'Rename recipe',
-      initial: recipe.name,
-      label: 'Recipe name',
+      title: 'Rename loadout',
+      initial: loadout.name,
+      label: 'Loadout name',
     );
     if (name == null) return;
 
-    await store.updateRecipe(
-      recipe.id,
+    await store.updateLoadout(
+      loadout.id,
       name: name,
-      itemIds: recipe.itemIds,
+      itemIds: loadout.itemIds,
     );
   }
 
-  Future<void> _addGear(BuildContext context, Recipe recipe) async {
+  Future<void> _addGear(BuildContext context, Loadout loadout) async {
     final chosen = await showGearPicker(context, store);
     if (chosen == null || chosen.isEmpty) return;
 
-    await store.updateRecipe(
-      recipe.id,
-      name: recipe.name,
-      itemIds: [...recipe.itemIds, ...chosen],
+    await store.updateLoadout(
+      loadout.id,
+      name: loadout.name,
+      itemIds: [...loadout.itemIds, ...chosen],
     );
   }
 
-  /// Removes by position, not by id — a recipe may list the same item twice.
-  Future<void> _removeAt(Recipe recipe, int index) async {
-    final itemIds = [...recipe.itemIds]..removeAt(index);
-    await store.updateRecipe(
-      recipe.id,
-      name: recipe.name,
+  /// Removes by position, not by id — a loadout may list the same item twice.
+  Future<void> _removeAt(Loadout loadout, int index) async {
+    final itemIds = [...loadout.itemIds]..removeAt(index);
+    await store.updateLoadout(
+      loadout.id,
+      name: loadout.name,
       itemIds: itemIds,
     );
   }
 }
 
-class _EmptyRecipes extends StatelessWidget {
-  const _EmptyRecipes();
+class _EmptyLoadouts extends StatelessWidget {
+  const _EmptyLoadouts();
 
   @override
   Widget build(BuildContext context) {
@@ -240,10 +242,10 @@ class _EmptyRecipes extends StatelessWidget {
               color: theme.colorScheme.onSurfaceVariant,
             ),
             const SizedBox(height: 16),
-            Text('No recipes yet', style: theme.textTheme.titleMedium),
+            Text('No loadouts yet', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              'A recipe is a named set of gear — "Overnight hike", "Summer '
+              'A loadout is a named set of gear — "Overnight hike", "Summer '
               'minimal" — that you can drop into any container in one go.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(

@@ -205,6 +205,7 @@ class _GearLibraryScreenState extends State<GearLibraryScreen> {
         return Scaffold(
           appBar: AppBar(title: const Text('Gear')),
           floatingActionButton: FloatingActionButton.extended(
+            heroTag: 'fab-gear',
             onPressed: _addItem,
             icon: const Icon(Icons.add),
             label: const Text('New gear'),

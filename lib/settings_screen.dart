@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'diagram.dart';
 import 'edit_sheets.dart';
 import 'models.dart';
 import 'store.dart';
@@ -276,49 +275,15 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _editTolerance(BuildContext context) async {
-    final unit = store.unit;
-    final controller = TextEditingController(
-      text: store.settings.defaultTolerance == 0
-          ? ''
-          : unit.format(store.settings.defaultTolerance),
+    final centimetres = await showLengthDialog(
+      context,
+      title: 'Default tolerance',
+      label: 'Tolerance',
+      unit: store.unit,
+      initial: store.settings.defaultTolerance,
     );
+    if (centimetres == null) return;
 
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => UnitScope(
-        unit: unit,
-        child: AlertDialog(
-          title: const Text('Default tolerance'),
-          content: DimensionField(
-            controller: controller,
-            label: 'Tolerance',
-            hint: '0',
-            validator: (_) => null,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(controller.text),
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-    controller.dispose();
-
-    if (result == null) return;
-    final text = result.trim();
-    if (text.isEmpty) {
-      await store.setDefaultTolerance(0);
-      return;
-    }
-
-    final centimetres = unit.parseToCentimetres(text);
-    if (centimetres == null || centimetres < 0) return;
     await store.setDefaultTolerance(centimetres);
   }
 }

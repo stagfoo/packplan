@@ -307,8 +307,8 @@ class GearContainer {
 }
 
 /// A named set of library items — a kit you pack again and again.
-class Recipe {
-  const Recipe({required this.id, required this.name, this.itemIds = const []});
+class Loadout {
+  const Loadout({required this.id, required this.name, this.itemIds = const []});
 
   final String id;
   final String name;
@@ -322,7 +322,7 @@ class Recipe {
     'itemIds': itemIds,
   };
 
-  factory Recipe.fromJson(Map<String, dynamic> json) => Recipe(
+  factory Loadout.fromJson(Map<String, dynamic> json) => Loadout(
     id: json['id'] as String,
     name: json['name'] as String,
     itemIds: (json['itemIds'] as List<dynamic>? ?? [])

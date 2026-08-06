@@ -715,42 +715,159 @@ Future<CustomUnitDraft?> showCustomUnitSheet(
   );
 }
 
-/// Prompts for a single line of text — used for naming a recipe.
-Future<String?> showNameDialog(
-  BuildContext context, {
-  required String title,
-  String initial = '',
-  String label = 'Name',
-}) {
-  final controller = TextEditingController(text: initial);
-  return showDialog<String>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text(title),
+/// Prompts for a single line of text — used for naming a loadout.
+///
+/// The controller belongs to the dialog's own State rather than the caller.
+/// Disposing it when the future completes would kill it while the route is
+/// still animating out, and the field is still reading from it.
+class _NameDialog extends StatefulWidget {
+  const _NameDialog({
+    required this.title,
+    required this.initial,
+    required this.label,
+  });
+
+  final String title;
+  final String initial;
+  final String label;
+
+  @override
+  State<_NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<_NameDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_controller.text.trim());
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
       content: TextField(
-        controller: controller,
+        controller: _controller,
         autofocus: true,
         textCapitalization: TextCapitalization.sentences,
         decoration: InputDecoration(
-          labelText: label,
+          labelText: widget.label,
           border: const OutlineInputBorder(),
         ),
-        onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+        onSubmitted: (_) => _submit(),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: () =>
-              Navigator.of(context).pop(controller.text.trim()),
-          child: const Text('Save'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Save')),
       ],
-    ),
-  ).then((value) {
-    controller.dispose();
-    return (value ?? '').isEmpty ? null : value;
+    );
+  }
+}
+
+Future<String?> showNameDialog(
+  BuildContext context, {
+  required String title,
+  String initial = '',
+  String label = 'Name',
+}) async {
+  final name = await showDialog<String>(
+    context: context,
+    builder: (context) =>
+        _NameDialog(title: title, initial: initial, label: label),
+  );
+  return (name ?? '').isEmpty ? null : name;
+}
+
+/// Prompts for a single length, in [unit]. Returns the value in centimetres,
+/// or null if cancelled. An empty field comes back as zero.
+class _LengthDialog extends StatefulWidget {
+  const _LengthDialog({
+    required this.title,
+    required this.label,
+    required this.unit,
+    required this.initial,
   });
+
+  final String title;
+  final String label;
+  final MeasurementUnit unit;
+  final double initial;
+
+  @override
+  State<_LengthDialog> createState() => _LengthDialogState();
+}
+
+class _LengthDialogState extends State<_LengthDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial == 0 ? '' : widget.unit.format(widget.initial),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) {
+      Navigator.of(context).pop(0.0);
+      return;
+    }
+
+    final centimetres = widget.unit.parseToCentimetres(text);
+    Navigator.of(context).pop(
+      centimetres == null || centimetres < 0 ? null : centimetres,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return UnitScope(
+      unit: widget.unit,
+      child: AlertDialog(
+        title: Text(widget.title),
+        content: DimensionField(
+          controller: _controller,
+          label: widget.label,
+          hint: '0',
+          validator: (_) => null,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(onPressed: _submit, child: const Text('Save')),
+        ],
+      ),
+    );
+  }
+}
+
+Future<double?> showLengthDialog(
+  BuildContext context, {
+  required String title,
+  required String label,
+  required MeasurementUnit unit,
+  double initial = 0,
+}) {
+  return showDialog<double>(
+    context: context,
+    builder: (context) => _LengthDialog(
+      title: title,
+      label: label,
+      unit: unit,
+      initial: initial,
+    ),
+  );
 }

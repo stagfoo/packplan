@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'container_list_screen.dart';
 import 'diagram.dart';
 import 'gear_library_screen.dart';
-import 'recipes_screen.dart';
+import 'loadouts_screen.dart';
 import 'store.dart';
 
 void main() {
@@ -41,7 +41,7 @@ class PackPlanApp extends StatelessWidget {
   }
 }
 
-/// Plans, gear and recipes, with settings reachable from the plans tab.
+/// Plans, gear and loadouts, with settings reachable from the plans tab.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.store});
 
@@ -62,7 +62,7 @@ class _HomeShellState extends State<HomeShell> {
         children: [
           ContainerListScreen(store: widget.store),
           GearLibraryScreen(store: widget.store),
-          RecipesScreen(store: widget.store),
+          LoadoutsScreen(store: widget.store),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -82,7 +82,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(
             icon: Icon(Icons.checklist_outlined),
             selectedIcon: Icon(Icons.checklist),
-            label: 'Recipes',
+            label: 'Loadouts',
           ),
         ],
       ),

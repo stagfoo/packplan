@@ -45,7 +45,7 @@ void main() {
     test('starts empty', () {
       expect(store.items, isEmpty);
       expect(store.containers, isEmpty);
-      expect(store.recipes, isEmpty);
+      expect(store.loadouts, isEmpty);
       expect(store.isLoaded, isTrue);
     });
 
@@ -154,18 +154,18 @@ void main() {
       expect(after.placement!.y, before.y);
     });
 
-    test('deleting gear removes it from containers and recipes', () async {
+    test('deleting gear removes it from containers and loadouts', () async {
       final pack = await makePack();
       final mug = await makeMug();
       await store.addGear(pack.id, mug.id);
-      final recipe = await store.addRecipe(name: 'kit', itemIds: [mug.id]);
+      final loadout = await store.addLoadout(name: 'kit', itemIds: [mug.id]);
 
       await store.deleteItem(mug.id);
 
       expect(store.items, isEmpty);
       expect(store.planFor(pack.id)!.entries, isEmpty);
       expect(store.containerById(pack.id)!.placements, isEmpty);
-      expect(store.recipeById(recipe.id)!.itemIds, isEmpty);
+      expect(store.loadoutById(loadout.id)!.itemIds, isEmpty);
     });
   });
 
@@ -265,17 +265,17 @@ void main() {
     });
   });
 
-  group('recipes', () {
+  group('loadouts', () {
     test('applying one adds all its gear', () async {
       final pack = await makePack();
       final mug = await makeMug();
       final stove = await store.addItem(name: 'stove', width: 12, height: 10);
-      final recipe = await store.addRecipe(
+      final loadout = await store.addLoadout(
         name: 'cook kit',
         itemIds: [mug.id, stove.id],
       );
 
-      final unfitted = await store.applyRecipe(pack.id, recipe.id);
+      final unfitted = await store.applyLoadout(pack.id, loadout.id);
 
       expect(unfitted, isEmpty);
       expect(
@@ -292,12 +292,12 @@ void main() {
       );
       final mug = await makeMug();
       final tent = await store.addItem(name: 'tent', width: 200, height: 200);
-      final recipe = await store.addRecipe(
+      final loadout = await store.addLoadout(
         name: 'kit',
         itemIds: [mug.id, tent.id],
       );
 
-      final unfitted = await store.applyRecipe(pack.id, recipe.id);
+      final unfitted = await store.applyLoadout(pack.id, loadout.id);
 
       expect(unfitted.map((i) => i.name), ['tent']);
       // It is still added to the container, just not placed.
@@ -307,36 +307,36 @@ void main() {
     test('applying twice packs two of everything', () async {
       final pack = await makePack();
       final mug = await makeMug();
-      final recipe = await store.addRecipe(name: 'kit', itemIds: [mug.id]);
+      final loadout = await store.addLoadout(name: 'kit', itemIds: [mug.id]);
 
-      await store.applyRecipe(pack.id, recipe.id);
-      await store.applyRecipe(pack.id, recipe.id);
+      await store.applyLoadout(pack.id, loadout.id);
+      await store.applyLoadout(pack.id, loadout.id);
 
       expect(store.planFor(pack.id)!.entries, hasLength(2));
     });
 
-    test('a container can be saved as a recipe', () async {
+    test('a container can be saved as a loadout', () async {
       final pack = await makePack();
       final mug = await makeMug();
       await store.addGear(pack.id, mug.id);
       await store.addGear(pack.id, mug.id);
 
-      final recipe = await store.saveContainerAsRecipe(
+      final loadout = await store.saveContainerAsLoadout(
         pack.id,
         name: 'my kit',
       );
 
       // Two entries of the same item means "pack two of these".
-      expect(recipe.itemIds, [mug.id, mug.id]);
+      expect(loadout.itemIds, [mug.id, mug.id]);
     });
 
-    test('deleting a recipe keeps the gear', () async {
+    test('deleting a loadout keeps the gear', () async {
       final mug = await makeMug();
-      final recipe = await store.addRecipe(name: 'kit', itemIds: [mug.id]);
+      final loadout = await store.addLoadout(name: 'kit', itemIds: [mug.id]);
 
-      await store.deleteRecipe(recipe.id);
+      await store.deleteLoadout(loadout.id);
 
-      expect(store.recipes, isEmpty);
+      expect(store.loadouts, isEmpty);
       expect(store.items, hasLength(1));
     });
   });
@@ -483,7 +483,7 @@ void main() {
         rotatable: false,
       );
       await store.addGear(pack.id, pot.id);
-      await store.addRecipe(name: 'cook kit', itemIds: [pot.id]);
+      await store.addLoadout(name: 'cook kit', itemIds: [pot.id]);
 
       final reloaded = await reload();
 
@@ -499,7 +499,7 @@ void main() {
 
       final plan = reloaded.planFor(pack.id)!;
       expect(plan.packed, hasLength(1));
-      expect(reloaded.recipes.single.itemIds, [pot.id]);
+      expect(reloaded.loadouts.single.itemIds, [pot.id]);
     });
 
     test('drag positions are written out on flush', () async {
@@ -798,5 +798,23 @@ void main() {
       expect(reloaded.unit.centimetresPerUnit, 21);
       expect(reloaded.customUnitById(derived.id)!.sourceAxis, GearAxis.height);
     });
+  });
+
+  test('loadouts saved under the old "recipes" key still load', () async {
+    await File('${directory.path}/packplan.json').writeAsString(
+      jsonEncode({
+        'version': kSchemaVersion,
+        'settings': <String, dynamic>{},
+        'items': <dynamic>[],
+        'recipes': [
+          {'id': 'r1', 'name': 'cook kit', 'itemIds': <String>[]},
+        ],
+        'containers': <dynamic>[],
+      }),
+    );
+
+    final reloaded = await reload();
+
+    expect(reloaded.loadouts.single.name, 'cook kit');
   });
 }

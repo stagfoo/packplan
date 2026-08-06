@@ -10,7 +10,7 @@ import 'units.dart';
 /// precise enough to justify anything finer, and it keeps the numbers readable.
 const double kDragSnap = 0.5;
 
-/// Owns the gear library, the recipes, the plans and the settings, and every
+/// Owns the gear library, the loadouts, the plans and the settings, and every
 /// mutation to them. Saves after each change — there is no explicit save
 /// button, and a packing plan you lose on a crash is worse than useless.
 class GearStore extends ChangeNotifier {
@@ -23,14 +23,14 @@ class GearStore extends ChangeNotifier {
 
   AppSettings _settings = const AppSettings();
   List<GearItem> _items = [];
-  List<Recipe> _recipes = [];
+  List<Loadout> _loadouts = [];
   List<GearContainer> _containers = [];
   List<CustomUnit> _customUnits = [];
   bool _loaded = false;
 
   AppSettings get settings => _settings;
   List<GearItem> get items => List.unmodifiable(_items);
-  List<Recipe> get recipes => List.unmodifiable(_recipes);
+  List<Loadout> get loadouts => List.unmodifiable(_loadouts);
   List<GearContainer> get containers => List.unmodifiable(_containers);
   List<CustomUnit> get customUnits => List.unmodifiable(_customUnits);
   bool get isLoaded => _loaded;
@@ -95,9 +95,9 @@ class GearStore extends ChangeNotifier {
     return null;
   }
 
-  Recipe? recipeById(String id) {
-    for (final recipe in _recipes) {
-      if (recipe.id == id) return recipe;
+  Loadout? loadoutById(String id) {
+    for (final loadout in _loadouts) {
+      if (loadout.id == id) return loadout;
     }
     return null;
   }
@@ -137,7 +137,7 @@ class GearStore extends ChangeNotifier {
     final data = await _repository.load();
     _settings = data.settings;
     _items = [...data.items];
-    _recipes = [...data.recipes];
+    _loadouts = [...data.loadouts];
     _containers = [...data.containers];
     _customUnits = [...data.customUnits];
     _loaded = true;
@@ -155,7 +155,7 @@ class GearStore extends ChangeNotifier {
     GearData(
       settings: _settings,
       items: _items,
-      recipes: _recipes,
+      loadouts: _loadouts,
       containers: _containers,
       customUnits: _customUnits,
     ),
@@ -357,7 +357,7 @@ class GearStore extends ChangeNotifier {
     return working;
   }
 
-  /// Deleting an item removes it from every container and recipe too — a
+  /// Deleting an item removes it from every container and loadout too — a
   /// dangling reference would be worse than losing the placement.
   Future<void> deleteItem(String itemId) async {
     _items.removeWhere((item) => item.id == itemId);
@@ -379,13 +379,13 @@ class GearStore extends ChangeNotifier {
       );
     }
 
-    for (var i = 0; i < _recipes.length; i++) {
-      final recipe = _recipes[i];
-      if (!recipe.itemIds.contains(itemId)) continue;
-      _recipes[i] = Recipe(
-        id: recipe.id,
-        name: recipe.name,
-        itemIds: recipe.itemIds.where((id) => id != itemId).toList(),
+    for (var i = 0; i < _loadouts.length; i++) {
+      final loadout = _loadouts[i];
+      if (!loadout.itemIds.contains(itemId)) continue;
+      _loadouts[i] = Loadout(
+        id: loadout.id,
+        name: loadout.name,
+        itemIds: loadout.itemIds.where((id) => id != itemId).toList(),
       );
     }
 
@@ -398,41 +398,41 @@ class GearStore extends ChangeNotifier {
       .where((c) => c.entries.any((entry) => entry.itemId == itemId))
       .length;
 
-  // ---------------------------------------------------------------- recipes
+  // ---------------------------------------------------------------- loadouts
 
-  Future<Recipe> addRecipe({
+  Future<Loadout> addLoadout({
     required String name,
     List<String> itemIds = const [],
   }) async {
-    final recipe = Recipe(id: _uuid.v4(), name: name, itemIds: [...itemIds]);
-    _recipes.add(recipe);
+    final loadout = Loadout(id: _uuid.v4(), name: name, itemIds: [...itemIds]);
+    _loadouts.add(loadout);
     await _commit();
-    return recipe;
+    return loadout;
   }
 
-  Future<void> updateRecipe(
-    String recipeId, {
+  Future<void> updateLoadout(
+    String loadoutId, {
     required String name,
     required List<String> itemIds,
   }) async {
-    final index = _recipes.indexWhere((recipe) => recipe.id == recipeId);
+    final index = _loadouts.indexWhere((loadout) => loadout.id == loadoutId);
     if (index < 0) return;
-    _recipes[index] = Recipe(id: recipeId, name: name, itemIds: [...itemIds]);
+    _loadouts[index] = Loadout(id: loadoutId, name: name, itemIds: [...itemIds]);
     await _commit();
   }
 
-  Future<void> deleteRecipe(String recipeId) async {
-    _recipes.removeWhere((recipe) => recipe.id == recipeId);
+  Future<void> deleteLoadout(String loadoutId) async {
+    _loadouts.removeWhere((loadout) => loadout.id == loadoutId);
     await _commit();
   }
 
-  /// Saves what a container currently holds as a reusable recipe.
-  Future<Recipe> saveContainerAsRecipe(
+  /// Saves what a container currently holds as a reusable loadout.
+  Future<Loadout> saveContainerAsLoadout(
     String containerId, {
     required String name,
   }) async {
     final container = containerById(containerId);
-    return addRecipe(
+    return addLoadout(
       name: name,
       itemIds: container == null
           ? const []
@@ -440,18 +440,18 @@ class GearStore extends ChangeNotifier {
     );
   }
 
-  /// Adds every item in a recipe to a container, placing each in free space so
+  /// Adds every item in a loadout to a container, placing each in free space so
   /// any arrangement already made by hand survives. Returns the items that
   /// found no room.
-  Future<List<GearItem>> applyRecipe(
+  Future<List<GearItem>> applyLoadout(
     String containerId,
-    String recipeId,
+    String loadoutId,
   ) async {
-    final recipe = recipeById(recipeId);
-    if (recipe == null) return const [];
+    final loadout = loadoutById(loadoutId);
+    if (loadout == null) return const [];
 
     final unfitted = <GearItem>[];
-    for (final itemId in recipe.itemIds) {
+    for (final itemId in loadout.itemIds) {
       final placed = await addGear(containerId, itemId);
       if (!placed) {
         final item = itemById(itemId);

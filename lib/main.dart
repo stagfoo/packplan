@@ -7,6 +7,10 @@ import 'loadouts_screen.dart';
 import 'store.dart';
 
 void main() {
+  // load() reaches for the documents directory over a platform channel, which
+  // does not exist until the binding does. Without this it throws before the
+  // first frame and the app sits on a spinner forever.
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(PackPlanApp(store: GearStore()..load()));
 }
 

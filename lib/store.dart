@@ -148,15 +148,28 @@ class GearStore extends ChangeNotifier {
 
   // --------------------------------------------------------------- lifecycle
 
+  /// Why loading failed, or null. The app starts empty rather than refusing to
+  /// start, so this exists to say so instead of pretending there was no data.
+  String? get loadError => _loadError;
+  String? _loadError;
+
+  /// Never throws. Whatever goes wrong, loading finishes — a screen stuck on a
+  /// spinner tells the user nothing and cannot be recovered from.
   Future<void> load() async {
-    final data = await _repository.load();
-    _settings = data.settings;
-    _items = [...data.items];
-    _loadouts = [...data.loadouts];
-    _plans = [...data.plans];
-    _customUnits = [...data.customUnits];
-    _loaded = true;
-    notifyListeners();
+    try {
+      final data = await _repository.load();
+      _settings = data.settings;
+      _items = [...data.items];
+      _loadouts = [...data.loadouts];
+      _plans = [...data.plans];
+      _customUnits = [...data.customUnits];
+      _loadError = null;
+    } catch (error) {
+      _loadError = '$error';
+    } finally {
+      _loaded = true;
+      notifyListeners();
+    }
   }
 
   Future<void> _commit() async {

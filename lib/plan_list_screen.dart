@@ -46,6 +46,8 @@ class PlanListScreen extends StatelessWidget {
           ),
           body: !store.isLoaded
               ? const Center(child: CircularProgressIndicator())
+              : store.loadError != null
+              ? _LoadFailed(error: store.loadError!, onRetry: store.load)
               : plans.isEmpty
               ? const _EmptyState()
               : ListView.builder(
@@ -208,6 +210,66 @@ class _PlanTile extends StatelessWidget {
           itemBuilder: (context) => [
             const PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
             const PopupMenuItem(value: 'delete', child: Text('Delete')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when the saved data could not be read. Anything the user does from
+/// here would overwrite whatever is on disk, so it says so plainly and offers
+/// a retry rather than quietly starting fresh.
+class _LoadFailed extends StatelessWidget {
+  const _LoadFailed({required this.error, required this.onRetry});
+
+  final String error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 56,
+              color: theme.colorScheme.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              "Couldn't load your gear",
+              style: theme.textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your saved data is still on disk. Adding anything now would '
+              'replace it, so try again first.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              error,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
           ],
         ),
       ),

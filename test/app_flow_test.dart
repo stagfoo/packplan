@@ -2,9 +2,19 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:packplan/main.dart' as app;
 import 'package:packplan/main.dart';
 import 'package:packplan/repository.dart';
 import 'package:packplan/store.dart';
+
+/// Stands in for a repository that cannot reach the disk — which is what the
+/// real one does when the platform channel is not ready.
+class _BrokenRepository extends GearRepository {
+  _BrokenRepository() : super(directory: Directory.systemTemp);
+
+  @override
+  Future<GearData> load() async => throw StateError('no binding');
+}
 
 /// Drives the real app the way a person does, to catch the framework asserts
 /// that unit tests never see.
@@ -196,5 +206,54 @@ void main() {
       await tester.tap(find.text(tab));
       await tester.pumpAndSettle();
     }
+  });
+
+  group('startup', () {
+    testWidgets('a failed load finishes and says so, never spins', (
+      tester,
+    ) async {
+      final broken = GearStore(repository: _BrokenRepository())..load();
+
+      await tester.pumpWidget(PackPlanApp(store: broken));
+      await tester.pumpAndSettle();
+
+      expect(broken.isLoaded, isTrue);
+      expect(broken.loadError, isNotNull);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text("Couldn't load your gear"), findsOneWidget);
+      // The saved file must not be silently replaced by an empty one.
+      expect(find.text('Try again'), findsOneWidget);
+    });
+
+    testWidgets('an empty store shows the empty state, not a spinner', (
+      tester,
+    ) async {
+      await seed(tester, () async => store.load());
+
+      await pumpApp(tester);
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('Nothing planned yet'), findsOneWidget);
+    });
+
+    testWidgets('main() gets past the first frame', (tester) async {
+      // Reaching for the documents directory before the binding exists is what
+      // left the plans tab spinning forever.
+      // main() calls runApp directly, so clear the previous test's tree first
+      // — its tickers would otherwise still be running against a reset clock.
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      app.main();
+      await tester.pump();
+
+      // The app bar title and the nav destination both say Plans. Reaching
+      // the shell at all is the point: before ensureInitialized() this threw
+      // on the platform channel and never got here.
+      //
+      // Loading does not finish here — path_provider has no plugin under
+      // `flutter test`, so the channel never answers. The failed-load path is
+      // covered above with a repository that throws outright.
+      expect(find.text('Plans'), findsWidgets);
+    });
   });
 }

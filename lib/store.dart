@@ -6,6 +6,20 @@ import 'packer.dart';
 import 'repository.dart';
 import 'units.dart';
 
+/// What happened when the user asked to turn a piece of gear.
+enum RotateOutcome {
+  rotated,
+
+  /// The container has no room for it that way round.
+  wontFit,
+
+  /// Flat gear cannot be stood on the depth the app invented for it.
+  noDepth,
+
+  /// The plan or the gear is gone.
+  notFound,
+}
+
 /// Drag positions snap to this many centimetres. Gear measurements are not
 /// precise enough to justify anything finer, and it keeps the numbers readable.
 const double kDragSnap = 0.5;
@@ -748,6 +762,70 @@ class GearStore extends ChangeNotifier {
       record.copyWith(placements: {...record.placements, entryId: moved}),
     );
     notifyListeners();
+  }
+
+  /// Turns placed gear a quarter turn in [plane].
+  ///
+  /// Manual, so it ignores the gear's "can be turned" setting — that governs
+  /// what auto-pack is allowed to do on its own, and this is the user saying
+  /// otherwise about one placement. Clashes are allowed here for the same
+  /// reason dragging allows them; only turns that cannot physically fit the
+  /// container are refused.
+  Future<RotateOutcome> rotateGear(
+    String planId,
+    String entryId,
+    RotationPlane plane,
+  ) async {
+    final record = planRecordById(planId);
+    final plan = record == null ? null : _resolve(record);
+    if (record == null || plan == null) return RotateOutcome.notFound;
+
+    final placement = record.placements[entryId];
+    if (placement == null) return RotateOutcome.notFound;
+
+    // Standing flat gear on the depth we invented for it would turn a 1 cm
+    // assumption into a 1 cm-tall item, which is not a real packing choice.
+    if (plane == RotationPlane.depthHeight) {
+      final entry = plan.entryById(entryId);
+      if (entry == null) return RotateOutcome.notFound;
+      if (!entry.item.hasDepth) return RotateOutcome.noDepth;
+    }
+
+    final tolerance = record.tolerance;
+    final depthTolerance = plan.isThreeDimensional ? tolerance : 0.0;
+    final turned = placement.rotated(plane);
+
+    // Refuse a turn the container simply has no room for, rather than leaving
+    // gear sticking out of its own bag.
+    if (turned.width > plan.container.width - tolerance * 2 ||
+        turned.height > plan.container.height - tolerance * 2 ||
+        turned.depth > plan.workingDepth - depthTolerance * 2) {
+      return RotateOutcome.wontFit;
+    }
+
+    final settled = turned.copyWith(
+      x: _clamp(
+        turned.x,
+        tolerance,
+        plan.container.width - tolerance - turned.width,
+      ),
+      y: _clamp(
+        turned.y,
+        tolerance,
+        plan.container.height - tolerance - turned.height,
+      ),
+      z: _clamp(
+        turned.z,
+        depthTolerance,
+        plan.workingDepth - depthTolerance - turned.depth,
+      ),
+    );
+
+    _replace(
+      record.copyWith(placements: {...record.placements, entryId: settled}),
+    );
+    await _commit();
+    return RotateOutcome.rotated;
   }
 
   double _clamp(double value, double min, double max) {

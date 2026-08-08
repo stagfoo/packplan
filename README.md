@@ -38,6 +38,19 @@ mid-rearrange is miserable to use.
 Adding one piece later slots it into free space instead of re-packing, so
 adjustments you made by hand survive.
 
+**Turning gear.** Select a piece and a turn button appears on each view's
+top-right corner. It turns the gear a quarter turn *in that view* — swapping
+width and height in the front view, depth and height from the side — so there
+is never a question of which way round it means. Turns that the container has
+no room for are refused rather than left sticking out, and flat gear cannot be
+stood on the 1 cm depth the app invents for it.
+
+A hand turn applies to that one placement, so the same item stays as it was in
+every other plan. Like a drag, it lasts until the next auto-pack. It also
+deliberately ignores the gear's **can be turned** setting: that governs what
+auto-pack may do on its own, and a turn by hand is you saying otherwise about
+one piece.
+
 **The library.** Gear is defined once and used in any number of plans, so
 correcting a measurement corrects it everywhere. Tag things (`camp`, `cook`,
 `edc`) and filter by tag — gear has to carry *every* selected tag, since

@@ -104,7 +104,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                   _Banner(
                     message:
                         'The tolerance leaves no usable space in '
-                        '\${plan.container.name}. Lower it, or pack into '
+                        '${plan.container.name}. Lower it, or pack into '
                         'something bigger.',
                   ),
                 Padding(
@@ -122,6 +122,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                       selectedEntryId: _selectedEntryId,
                       onSelected: (entryId) =>
                           setState(() => _selectedEntryId = entryId),
+                      onRotate: _rotate,
                       store: widget.store,
                     ),
                   ),
@@ -213,6 +214,26 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _rotate(ViewAxis axis, String entryId) async {
+    final outcome = await widget.store.rotateGear(
+      widget.planId,
+      entryId,
+      axis == ViewAxis.front
+          ? RotationPlane.widthHeight
+          : RotationPlane.depthHeight,
+    );
+
+    switch (outcome) {
+      case RotateOutcome.rotated:
+      case RotateOutcome.notFound:
+        break;
+      case RotateOutcome.wontFit:
+        _report("It doesn't fit that way round.");
+      case RotateOutcome.noDepth:
+        _report('Give this a depth before turning it on its side.');
+    }
   }
 
   Future<void> _autoPack(Plan plan) async {
@@ -361,6 +382,7 @@ class _Diagram extends StatelessWidget {
     required this.issues,
     required this.selectedEntryId,
     required this.onSelected,
+    required this.onRotate,
     required this.store,
   });
 
@@ -368,6 +390,7 @@ class _Diagram extends StatelessWidget {
   final Map<String, Set<PlacementIssue>> issues;
   final String? selectedEntryId;
   final ValueChanged<String?> onSelected;
+  final void Function(ViewAxis axis, String entryId) onRotate;
   final GearStore store;
 
   void _onDragged(ViewAxis axis, String entryId, Offset planDelta) {
@@ -389,6 +412,7 @@ class _Diagram extends StatelessWidget {
     onSelected: onSelected,
     onDragged: (entryId, delta) => _onDragged(axis, entryId, delta),
     onDragEnded: store.flush,
+    onRotate: (entryId) => onRotate(axis, entryId),
   );
 
   @override

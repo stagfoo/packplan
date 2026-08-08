@@ -1039,4 +1039,266 @@ void main() {
       expect(twice.planRecords, hasLength(1));
     });
   });
+
+  group('turning gear by hand', () {
+    /// The case from the screenshot: a 45 x 30 box lying flat in a 50-tall
+    /// container that it would also fit standing up.
+    Future<({String planId, String entryId})> chuckboxInCamp({
+      double tolerance = 0,
+      double containerDepth = 20,
+    }) async {
+      final bag = await store.addItem(
+        name: 'Camp',
+        width: 90,
+        height: 50,
+        depth: containerDepth,
+        isContainer: true,
+      );
+      final plan = (await store.addPlan(
+        containerItemId: bag.id,
+        name: 'Camp',
+        tolerance: tolerance,
+      ))!;
+      final box = await store.addItem(
+        name: 'Chuckbox',
+        width: 45,
+        height: 30,
+        depth: 20,
+      );
+      await store.addGear(plan.id, box.id);
+      return (
+        planId: plan.id,
+        entryId: store.planFor(plan.id)!.entries.single.id,
+      );
+    }
+
+    test('a turn in the front view swaps width and height', () async {
+      final it = await chuckboxInCamp();
+      final before = store.planFor(it.planId)!.entries.single.placement!;
+      expect(before.width, 45);
+      expect(before.height, 30);
+
+      final outcome = await store.rotateGear(
+        it.planId,
+        it.entryId,
+        RotationPlane.widthHeight,
+      );
+
+      expect(outcome, RotateOutcome.rotated);
+      final after = store.planFor(it.planId)!.entries.single.placement!;
+      expect(after.width, 30);
+      expect(after.height, 45);
+      expect(after.depth, 20, reason: 'depth is untouched by a front turn');
+    });
+
+    test('a turn in the side view swaps depth and height', () async {
+      // Needs a deeper bag than the screenshot's: laying the box on its side
+      // asks for 30 cm of depth.
+      final it = await chuckboxInCamp(containerDepth: 40);
+
+      final outcome = await store.rotateGear(
+        it.planId,
+        it.entryId,
+        RotationPlane.depthHeight,
+      );
+
+      expect(outcome, RotateOutcome.rotated);
+      final after = store.planFor(it.planId)!.entries.single.placement!;
+      expect(after.width, 45, reason: 'width is untouched by a side turn');
+      expect(after.height, 20);
+      expect(after.depth, 30);
+    });
+
+    test('a side turn is refused when the bag is not deep enough', () async {
+      // The screenshot's bag: 20 cm deep, and the box would need 30.
+      final it = await chuckboxInCamp();
+
+      expect(
+        await store.rotateGear(
+          it.planId,
+          it.entryId,
+          RotationPlane.depthHeight,
+        ),
+        RotateOutcome.wontFit,
+      );
+    });
+
+    test('turning twice comes back to where it started', () async {
+      final it = await chuckboxInCamp();
+
+      await store.rotateGear(it.planId, it.entryId, RotationPlane.widthHeight);
+      await store.rotateGear(it.planId, it.entryId, RotationPlane.widthHeight);
+
+      final after = store.planFor(it.planId)!.entries.single.placement!;
+      expect(after.width, 45);
+      expect(after.height, 30);
+    });
+
+    test('is refused when the container has no room that way round', () async {
+      final bag = await store.addItem(
+        name: 'shallow',
+        width: 90,
+        height: 20,
+        isContainer: true,
+      );
+      final plan = (await store.addPlan(containerItemId: bag.id))!;
+      final plank = await store.addItem(name: 'plank', width: 80, height: 10);
+      await store.addGear(plan.id, plank.id);
+      final entryId = store.planFor(plan.id)!.entries.single.id;
+
+      // Standing it up would need 80 of the 20 available.
+      final outcome = await store.rotateGear(
+        plan.id,
+        entryId,
+        RotationPlane.widthHeight,
+      );
+
+      expect(outcome, RotateOutcome.wontFit);
+      final after = store.planFor(plan.id)!.entries.single.placement!;
+      expect(after.width, 80, reason: 'the refused turn changed nothing');
+    });
+
+    test('flat gear cannot be stood on its invented depth', () async {
+      final bag = await store.addItem(
+        name: 'Camp',
+        width: 90,
+        height: 50,
+        depth: 20,
+        isContainer: true,
+      );
+      final plan = (await store.addPlan(containerItemId: bag.id))!;
+      final pot = await store.addItem(
+        name: 'pot',
+        width: 10,
+        height: 10,
+        depth: 10,
+      );
+      final map = await store.addItem(name: 'map', width: 20, height: 14);
+      await store.addGear(plan.id, pot.id);
+      await store.addGear(plan.id, map.id);
+
+      final mapEntry = store
+          .planFor(plan.id)!
+          .entries
+          .firstWhere((e) => e.item.name == 'map');
+
+      expect(
+        await store.rotateGear(
+          plan.id,
+          mapEntry.id,
+          RotationPlane.depthHeight,
+        ),
+        RotateOutcome.noDepth,
+      );
+      // A front turn is still fine — those are real measurements.
+      expect(
+        await store.rotateGear(
+          plan.id,
+          mapEntry.id,
+          RotationPlane.widthHeight,
+        ),
+        RotateOutcome.rotated,
+      );
+    });
+
+    test('turning ignores the packer-only "can be turned" setting', () async {
+      final bag = await store.addItem(
+        name: 'Camp',
+        width: 90,
+        height: 50,
+        isContainer: true,
+      );
+      final plan = (await store.addPlan(containerItemId: bag.id))!;
+      final stove = await store.addItem(
+        name: 'stove',
+        width: 20,
+        height: 10,
+        rotatable: false,
+      );
+      await store.addGear(plan.id, stove.id);
+      final entryId = store.planFor(plan.id)!.entries.single.id;
+
+      // That switch governs auto-pack; this is the user saying otherwise about
+      // one placement.
+      expect(
+        await store.rotateGear(plan.id, entryId, RotationPlane.widthHeight),
+        RotateOutcome.rotated,
+      );
+      expect(store.planFor(plan.id)!.entries.single.placement!.height, 20);
+    });
+
+    test('a turn near an edge is pulled back inside', () async {
+      final bag = await store.addItem(
+        name: 'Camp',
+        width: 90,
+        height: 50,
+        isContainer: true,
+      );
+      final plan = (await store.addPlan(containerItemId: bag.id))!;
+      final box = await store.addItem(name: 'box', width: 40, height: 10);
+      await store.addGear(plan.id, box.id);
+      final entryId = store.planFor(plan.id)!.entries.single.id;
+
+      // Push it to the top, where standing it up would poke out of the lid.
+      store.moveGear(plan.id, entryId, dy: 100);
+      expect(store.planFor(plan.id)!.entries.single.placement!.y, 40);
+
+      await store.rotateGear(plan.id, entryId, RotationPlane.widthHeight);
+
+      final after = store.planFor(plan.id)!.entries.single.placement!;
+      expect(after.height, 40);
+      expect(after.bottom, lessThanOrEqualTo(50));
+    });
+
+    test('a turn respects the tolerance margin', () async {
+      // A 2 cm gap on every wall leaves only 16 cm of depth in the screenshot's
+      // bag, which the box cannot fit in at all, so give it a deeper one.
+      final it = await chuckboxInCamp(tolerance: 2, containerDepth: 30);
+
+      await store.rotateGear(it.planId, it.entryId, RotationPlane.widthHeight);
+
+      final after = store.planFor(it.planId)!.entries.single.placement!;
+      expect(after.x, greaterThanOrEqualTo(2));
+      expect(after.y, greaterThanOrEqualTo(2));
+      expect(after.right, lessThanOrEqualTo(88));
+      expect(after.bottom, lessThanOrEqualTo(48));
+      expect(after.back, lessThanOrEqualTo(28));
+    });
+
+    test('unplaced gear cannot be turned', () async {
+      final it = await chuckboxInCamp();
+      await store.unplaceEntry(it.planId, it.entryId);
+
+      expect(
+        await store.rotateGear(
+          it.planId,
+          it.entryId,
+          RotationPlane.widthHeight,
+        ),
+        RotateOutcome.notFound,
+      );
+    });
+
+    test('a turn survives a reload', () async {
+      final it = await chuckboxInCamp();
+      await store.rotateGear(it.planId, it.entryId, RotationPlane.widthHeight);
+
+      final reloaded = await reload();
+
+      final after = reloaded.planFor(it.planId)!.entries.single.placement!;
+      expect(after.width, 30);
+      expect(after.height, 45);
+    });
+
+    test('auto-pack discards a hand turn, like it discards a drag', () async {
+      final it = await chuckboxInCamp();
+      await store.rotateGear(it.planId, it.entryId, RotationPlane.widthHeight);
+
+      await store.autoPack(it.planId);
+
+      final after = store.planFor(it.planId)!.entries.single.placement!;
+      expect(after.width, 45);
+      expect(after.height, 30);
+    });
+  });
 }

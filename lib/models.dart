@@ -5,6 +5,18 @@ import 'units.dart';
 /// Every length in this file is centimetres. See [MeasurementUnit] — units are
 /// a display concern, never a storage one.
 
+/// Which two of a placement's dimensions a quarter turn swaps.
+///
+/// Named for the plane rather than the view, so nothing outside the UI has to
+/// know which view the user was looking at when they asked.
+enum RotationPlane {
+  /// A turn in the front view: width and height swap.
+  widthHeight,
+
+  /// A turn in the side view: depth and height swap.
+  depthHeight,
+}
+
 /// Where a piece of gear sits inside its container.
 class Placement {
   const Placement({
@@ -44,6 +56,29 @@ class Placement {
     height: height,
     depth: depth,
   );
+
+  /// Turns the gear a quarter turn in [plane], keeping its near corner put.
+  /// The caller is responsible for clamping it back inside the container.
+  Placement rotated(RotationPlane plane) => switch (plane) {
+    RotationPlane.widthHeight => Placement(
+      entryId: entryId,
+      x: x,
+      y: y,
+      z: z,
+      width: height,
+      height: width,
+      depth: depth,
+    ),
+    RotationPlane.depthHeight => Placement(
+      entryId: entryId,
+      x: x,
+      y: y,
+      z: z,
+      width: width,
+      height: depth,
+      depth: height,
+    ),
+  };
 
   /// True when this placement comes within [clearance] of [other] on every
   /// axis. With a clearance of zero, touching faces do not count.

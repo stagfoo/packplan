@@ -178,6 +178,7 @@ void main() {
       required void Function(String, Offset) onDragged,
       ValueChanged<String?>? onSelected,
       VoidCallback? onDragEnded,
+      ValueChanged<String>? onRotate,
     }) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -196,6 +197,7 @@ void main() {
                     onSelected: onSelected ?? (_) {},
                     onDragged: onDragged,
                     onDragEnded: onDragEnded ?? () {},
+                    onRotate: onRotate ?? (_) {},
                   ),
                 ),
               ),
@@ -292,6 +294,7 @@ void main() {
                   onSelected: (_) {},
                   onDragged: (_, _) {},
                   onDragEnded: () {},
+                  onRotate: (_) {},
                 ),
               ),
             ),

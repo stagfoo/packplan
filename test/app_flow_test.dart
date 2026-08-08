@@ -418,4 +418,135 @@ void main() {
       expect(store.plans.single.container.name, 'dry bag');
     });
   });
+
+  group('turning gear from the diagram', () {
+    /// The screenshot's plan: a 45 x 30 x 20 box in a 90 x 50 x 20 bag.
+    Future<String> campWithChuckbox() async {
+      final bag = await store.addItem(
+        name: 'Camp',
+        width: 90,
+        height: 50,
+        depth: 20,
+        isContainer: true,
+      );
+      final plan = (await store.addPlan(
+        containerItemId: bag.id,
+        name: 'Camp',
+      ))!;
+      final box = await store.addItem(
+        name: 'Chuckbox',
+        width: 45,
+        height: 30,
+        depth: 20,
+      );
+      await store.addGear(plan.id, box.id);
+      return plan.id;
+    }
+
+    testWidgets('no turn button until gear is selected', (tester) async {
+      late String planId;
+      await seed(tester, () async {
+        await store.load();
+        planId = await campWithChuckbox();
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Camp'));
+      await tester.pumpAndSettle();
+
+      expect(planId, isNotEmpty);
+      expect(
+        find.byIcon(Icons.rotate_90_degrees_cw_outlined),
+        findsNothing,
+      );
+    });
+
+    testWidgets('selecting gear then turning it swaps its sides', (
+      tester,
+    ) async {
+      late String planId;
+      await seed(tester, () async {
+        await store.load();
+        planId = await campWithChuckbox();
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Camp'));
+      await tester.pumpAndSettle();
+
+      // Selecting from the gear list is the reliable way in a test; tapping
+      // the shape itself is covered by the diagram's own tests.
+      await tester.tap(find.text('Chuckbox'));
+      await tester.pumpAndSettle();
+
+      // One button per view, and the plan is three-dimensional.
+      final buttons = find.byIcon(Icons.rotate_90_degrees_cw_outlined);
+      expect(buttons, findsNWidgets(2));
+
+      await tester.tap(buttons.first);
+      await tester.pumpAndSettle();
+
+      final placement = store.planFor(planId)!.entries.single.placement!;
+      expect(placement.width, 30);
+      expect(placement.height, 45);
+    });
+
+    testWidgets('a turn that cannot fit says so and changes nothing', (
+      tester,
+    ) async {
+      late String planId;
+      await seed(tester, () async {
+        await store.load();
+        planId = await campWithChuckbox();
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Camp'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chuckbox'));
+      await tester.pumpAndSettle();
+
+      // The side view's button: the box would need 30 cm of a 20 cm depth.
+      await tester.tap(find.byIcon(Icons.rotate_90_degrees_cw_outlined).last);
+      await tester.pumpAndSettle();
+
+      expect(find.text("It doesn't fit that way round."), findsOneWidget);
+      final placement = store.planFor(planId)!.entries.single.placement!;
+      expect(placement.width, 45);
+      expect(placement.height, 30);
+    });
+
+    testWidgets('a flat plan offers one turn button, not two', (tester) async {
+      await seed(tester, () async {
+        await store.load();
+        final bag = await store.addItem(
+          name: 'Pouch',
+          width: 20,
+          height: 13,
+          isContainer: true,
+        );
+        final plan = (await store.addPlan(
+          containerItemId: bag.id,
+          name: 'Pouch',
+        ))!;
+        final knife = await store.addItem(name: 'Knife', width: 9, height: 3);
+        await store.addGear(plan.id, knife.id);
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pouch'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Knife'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byIcon(Icons.rotate_90_degrees_cw_outlined),
+        findsOneWidget,
+      );
+    });
+  });
 }

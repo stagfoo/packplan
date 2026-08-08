@@ -256,4 +256,166 @@ void main() {
       expect(find.text('Plans'), findsWidgets);
     });
   });
+
+  group('marking gear as a container', () {
+    /// Fills the gear sheet in and saves it.
+    Future<void> fillGearSheet(
+      WidgetTester tester, {
+      required String name,
+      required String width,
+      required String height,
+      bool holdsGear = false,
+    }) async {
+      await tester.enterText(find.widgetWithText(TextFormField, 'Name'), name);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Width'),
+        width,
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Height'),
+        height,
+      );
+
+      if (holdsGear) {
+        await tester.tap(find.widgetWithText(SwitchListTile, 'Holds other gear'));
+        await tester.pump();
+      }
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the switch reaches the library when creating gear', (
+      tester,
+    ) async {
+      await seed(tester, () async => store.load());
+
+      await pumpApp(tester);
+      await tester.tap(find.text('Gear'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('New gear'));
+      await tester.pumpAndSettle();
+
+      await fillGearSheet(
+        tester,
+        name: 'dry bag',
+        width: '30',
+        height: '40',
+        holdsGear: true,
+      );
+
+      expect(store.items.single.name, 'dry bag');
+      expect(store.items.single.isContainer, isTrue);
+      // And so a plan can actually be built on it.
+      expect(store.containerItems, hasLength(1));
+    });
+
+    testWidgets('gear left alone does not become a container', (tester) async {
+      await seed(tester, () async => store.load());
+
+      await pumpApp(tester);
+      await tester.tap(find.text('Gear'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('New gear'));
+      await tester.pumpAndSettle();
+
+      await fillGearSheet(tester, name: 'mug', width: '9', height: '9');
+
+      expect(store.items.single.isContainer, isFalse);
+      expect(store.containerItems, isEmpty);
+    });
+
+    testWidgets('the switch survives reopening the sheet', (tester) async {
+      await seed(tester, () async {
+        await store.load();
+        await store.addItem(
+          name: 'dry bag',
+          width: 30,
+          height: 40,
+          isContainer: true,
+        );
+      });
+
+      await pumpApp(tester);
+      await tester.tap(find.text('Gear'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('dry bag'));
+      await tester.pumpAndSettle();
+
+      // It must come back on, and stay on through a save that touches nothing.
+      final switchTile = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Holds other gear'),
+      );
+      expect(switchTile.value, isTrue);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(store.items.single.isContainer, isTrue);
+    });
+
+    testWidgets('the switch can be turned off again', (tester) async {
+      await seed(tester, () async {
+        await store.load();
+        await store.addItem(
+          name: 'dry bag',
+          width: 30,
+          height: 40,
+          isContainer: true,
+        );
+      });
+
+      await pumpApp(tester);
+      await tester.tap(find.text('Gear'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('dry bag'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Holds other gear'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(store.items.single.isContainer, isFalse);
+    });
+
+    testWidgets('a container can then be planned around', (tester) async {
+      await seed(tester, () async => store.load());
+
+      await pumpApp(tester);
+      await tester.tap(find.text('Gear'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New gear'));
+      await tester.pumpAndSettle();
+      await fillGearSheet(
+        tester,
+        name: 'dry bag',
+        width: '30',
+        height: '40',
+        holdsGear: true,
+      );
+
+      await tester.tap(find.text('Plans'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New plan'));
+      await tester.pumpAndSettle();
+
+      // The sheet offers the bag rather than refusing to open.
+      expect(find.text('Pack into'), findsOneWidget);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Plan name'),
+        'weekend',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(store.planRecords, hasLength(1));
+      expect(store.plans.single.name, 'weekend');
+      expect(store.plans.single.container.name, 'dry bag');
+    });
+  });
 }

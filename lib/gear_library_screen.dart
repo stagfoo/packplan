@@ -288,6 +288,7 @@ class _GearLibraryScreenState extends State<GearLibraryScreen> {
       depth: draft.depth,
       rotatable: draft.rotatable,
       tags: draft.tags,
+      isContainer: draft.isContainer,
     );
   }
 
@@ -307,6 +308,7 @@ class _GearLibraryScreenState extends State<GearLibraryScreen> {
       depth: draft.depth,
       rotatable: draft.rotatable,
       tags: draft.tags,
+      isContainer: draft.isContainer,
     );
   }
 
@@ -558,6 +560,7 @@ class _GearPickerSheetState extends State<GearPickerSheet> {
       depth: draft.depth,
       rotatable: draft.rotatable,
       tags: draft.tags,
+      isContainer: draft.isContainer,
     );
     setState(() => _chosen.add(item.id));
   }

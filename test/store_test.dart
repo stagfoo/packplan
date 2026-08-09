@@ -457,9 +457,10 @@ void main() {
 
       store.moveGear(pack.id, entryId, dx: -500, dy: -500);
 
+      // Half the 2 cm tolerance sits against each wall.
       final placement = store.planFor(pack.id)!.entries.single.placement!;
-      expect(placement.x, 2);
-      expect(placement.y, 2);
+      expect(placement.x, 1);
+      expect(placement.y, 1);
     });
 
     test('depth is fixed at zero in a flat plan', () async {
@@ -1258,11 +1259,11 @@ void main() {
       await store.rotateGear(it.planId, it.entryId, RotationPlane.widthHeight);
 
       final after = store.planFor(it.planId)!.entries.single.placement!;
-      expect(after.x, greaterThanOrEqualTo(2));
-      expect(after.y, greaterThanOrEqualTo(2));
-      expect(after.right, lessThanOrEqualTo(88));
-      expect(after.bottom, lessThanOrEqualTo(48));
-      expect(after.back, lessThanOrEqualTo(28));
+      expect(after.x, greaterThanOrEqualTo(1));
+      expect(after.y, greaterThanOrEqualTo(1));
+      expect(after.right, lessThanOrEqualTo(89));
+      expect(after.bottom, lessThanOrEqualTo(49));
+      expect(after.back, lessThanOrEqualTo(29));
     });
 
     test('unplaced gear cannot be turned', () async {

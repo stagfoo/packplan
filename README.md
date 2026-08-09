@@ -20,7 +20,10 @@ without depth it stays a flat plan with a single view and an area check.
 
 **Two views, three axes.** The front view looks at the container head on (width
 across, height up). The side view looks at it from the left (depth across,
-height up). Between them every axis is covered, which is why dragging in either
+height up). Both are drawn at one shared scale — they show the same height
+axis, so drawing them independently would make the same bag read as two
+different sizes — and their widths are in proportion to the real dimensions, so
+depth reads honestly against width. Between them every axis is covered, which is why dragging in either
 view is enough to position gear completely — drag left and right in the front
 view to set its x, in the side view to set its depth.
 
@@ -66,8 +69,11 @@ drops into any plan in one go, placing each piece in free space so anything you
 arranged by hand stays put. You can also save what a plan currently holds as a
 new loadout. A loadout is gear only, never a container, so it fits any bag.
 
-**Tolerance.** Per plan, the gap kept clear of every wall *and* between
-any two pieces of gear. Zero lets things sit flush, which fits on paper but
+**Tolerance.** Per plan, the slack you want left over. Every piece of gear is
+treated as carrying a halo of half the tolerance on each side, so two pieces end
+up a full tolerance apart while a container loses one tolerance from each
+*dimension* rather than two: a 3 cm tolerance turns a 105 cm tub into 102 cm of
+usable depth, which is what the number reads like. Zero lets things sit flush, which fits on paper but
 rarely in the bag. The diagram outlines the margin it reserves. Changing it — or
 swapping the plan's container, or resizing that container in the library —
 re-packs, because it invalidates every position. A flat plan's

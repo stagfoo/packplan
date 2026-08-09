@@ -322,4 +322,124 @@ void main() {
       expect(seen, MeasurementUnit.centimetres);
     });
   });
+
+  group('shared scale across the two views', () {
+    // The reported case: a 300 x 300 x 105 tub, whose side view used to be
+    // drawn almost twice the size of its own front view.
+    Plan tub() => planOf(
+      width: 300,
+      height: 300,
+      depth: 105,
+      items: [gear('box', width: 200, height: 100, depth: 100)],
+    );
+
+    test('both views draw the height they share at the same size', () {
+      final plan = tub();
+      final scale = sharedScaleFor(
+        plan,
+        availableWidth: 660,
+        availableHeight: 400,
+      );
+
+      final front = ViewGeometry(
+        planWidth: plan.container.width,
+        planHeight: plan.container.height,
+        size: Size(plan.container.width * scale, plan.container.height * scale),
+        padding: kViewPadding,
+        fixedScale: scale,
+      );
+      final side = ViewGeometry(
+        planWidth: plan.workingDepth,
+        planHeight: plan.container.height,
+        size: Size(plan.workingDepth * scale, plan.container.height * scale),
+        padding: kViewPadding,
+        fixedScale: scale,
+      );
+
+      expect(side.boardSize.height, front.boardSize.height);
+      expect(side.scale, front.scale);
+    });
+
+    test('depth reads truthfully against width', () {
+      final plan = tub();
+      final scale = sharedScaleFor(
+        plan,
+        availableWidth: 660,
+        availableHeight: 400,
+      );
+
+      final frontWidth = plan.container.width * scale;
+      final sideWidth = plan.workingDepth * scale;
+
+      // 105 of depth against 300 of width.
+      expect(sideWidth / frontWidth, closeTo(105 / 300, 1e-9));
+    });
+
+    test('the two views fit the width they are given', () {
+      final plan = tub();
+      const available = 660.0;
+      final scale = sharedScaleFor(
+        plan,
+        availableWidth: available,
+        availableHeight: 400,
+      );
+
+      final used =
+          plan.container.width * scale +
+          plan.workingDepth * scale +
+          kViewGap +
+          kViewPadding * 4;
+      expect(used, lessThanOrEqualTo(available + 1e-9));
+    });
+
+    test('a tall container is limited by the height instead', () {
+      final plan = planOf(
+        width: 10,
+        height: 400,
+        depth: 10,
+        items: [gear('a', width: 5, height: 5, depth: 5)],
+      );
+
+      final scale = sharedScaleFor(
+        plan,
+        availableWidth: 1000,
+        availableHeight: 200,
+      );
+
+      expect(plan.container.height * scale, lessThanOrEqualTo(200));
+    });
+
+    test('an unbounded height asks only what the width allows', () {
+      final plan = tub();
+
+      final scale = sharedScaleFor(
+        plan,
+        availableWidth: 660,
+        availableHeight: double.infinity,
+      );
+
+      expect(scale, closeTo((660 - kViewGap - kViewPadding * 4) / 405, 1e-9));
+    });
+
+    test('a degenerate container does not divide by zero', () {
+      final plan = planOf(width: 0, height: 0, depth: 0, items: const []);
+
+      expect(
+        sharedScaleFor(plan, availableWidth: 100, availableHeight: 100),
+        1,
+      );
+    });
+
+    test('a forced scale overrides fitting to the box', () {
+      const geometry = ViewGeometry(
+        planWidth: 100,
+        planHeight: 100,
+        size: Size(50, 50),
+        fixedScale: 2,
+      );
+
+      expect(geometry.scale, 2);
+      expect(geometry.boardSize, const Size(200, 200));
+    });
+  });
 }

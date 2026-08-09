@@ -737,24 +737,24 @@ class GearStore extends ChangeNotifier {
     final placement = record.placements[entryId];
     if (placement == null) return;
 
-    final tolerance = record.tolerance;
-    final depthTolerance = plan.isThreeDimensional ? tolerance : 0.0;
+    final margin = wallMarginFor(record.tolerance);
+    final depthMargin = plan.isThreeDimensional ? margin : 0.0;
 
     final moved = placement.copyWith(
       x: _clamp(
         placement.x + dx,
-        tolerance,
-        plan.container.width - tolerance - placement.width,
+        margin,
+        plan.container.width - margin - placement.width,
       ),
       y: _clamp(
         placement.y + dy,
-        tolerance,
-        plan.container.height - tolerance - placement.height,
+        margin,
+        plan.container.height - margin - placement.height,
       ),
       z: _clamp(
         placement.z + dz,
-        depthTolerance,
-        plan.workingDepth - depthTolerance - placement.depth,
+        depthMargin,
+        plan.workingDepth - depthMargin - placement.depth,
       ),
     );
 
@@ -791,33 +791,33 @@ class GearStore extends ChangeNotifier {
       if (!entry.item.hasDepth) return RotateOutcome.noDepth;
     }
 
-    final tolerance = record.tolerance;
-    final depthTolerance = plan.isThreeDimensional ? tolerance : 0.0;
+    final margin = wallMarginFor(record.tolerance);
+    final depthMargin = plan.isThreeDimensional ? margin : 0.0;
     final turned = placement.rotated(plane);
 
     // Refuse a turn the container simply has no room for, rather than leaving
     // gear sticking out of its own bag.
-    if (turned.width > plan.container.width - tolerance * 2 ||
-        turned.height > plan.container.height - tolerance * 2 ||
-        turned.depth > plan.workingDepth - depthTolerance * 2) {
+    if (turned.width > plan.container.width - margin * 2 ||
+        turned.height > plan.container.height - margin * 2 ||
+        turned.depth > plan.workingDepth - depthMargin * 2) {
       return RotateOutcome.wontFit;
     }
 
     final settled = turned.copyWith(
       x: _clamp(
         turned.x,
-        tolerance,
-        plan.container.width - tolerance - turned.width,
+        margin,
+        plan.container.width - margin - turned.width,
       ),
       y: _clamp(
         turned.y,
-        tolerance,
-        plan.container.height - tolerance - turned.height,
+        margin,
+        plan.container.height - margin - turned.height,
       ),
       z: _clamp(
         turned.z,
-        depthTolerance,
-        plan.workingDepth - depthTolerance - turned.depth,
+        depthMargin,
+        plan.workingDepth - depthMargin - turned.depth,
       ),
     );
 

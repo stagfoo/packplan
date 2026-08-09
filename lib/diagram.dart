@@ -30,7 +30,8 @@ class ViewGeometry {
     required this.planWidth,
     required this.planHeight,
     required this.size,
-    this.padding = 10,
+    this.padding = kViewPadding,
+    this.fixedScale,
   });
 
   final double planWidth;
@@ -38,7 +39,17 @@ class ViewGeometry {
   final Size size;
   final double padding;
 
+  /// Forces a scale rather than fitting to [size].
+  ///
+  /// The front and side views share the height axis, so they have to be drawn
+  /// at one scale or the same container reads as two different sizes and the
+  /// depth view looks nothing like the front. The screen works the scale out
+  /// across both views and hands it to each.
+  final double? fixedScale;
+
   double get scale {
+    final forced = fixedScale;
+    if (forced != null) return forced > 0 ? forced : 1;
     if (planWidth <= 0 || planHeight <= 0) return 1;
     final usableWidth = math.max(size.width - padding * 2, 1.0);
     final usableHeight = math.max(size.height - padding * 2, 1.0);
@@ -101,6 +112,7 @@ class ContainerViewPainter extends CustomPainter {
     required this.labelColor,
     required this.emptyColor,
     required this.toleranceColor,
+    this.fixedScale,
   });
 
   final Plan plan;
@@ -113,12 +125,16 @@ class ContainerViewPainter extends CustomPainter {
   final Color emptyColor;
   final Color toleranceColor;
 
+  /// Set when this view is drawn beside another and they must agree.
+  final double? fixedScale;
+
   ViewGeometry geometryFor(Size size) {
     final extents = extentsFor(plan, axis);
     return ViewGeometry(
       planWidth: extents.horizontal,
       planHeight: extents.vertical,
       size: size,
+      fixedScale: fixedScale,
     );
   }
 
@@ -152,21 +168,21 @@ class ContainerViewPainter extends CustomPainter {
   /// Marks the strip the tolerance keeps clear, so the gap around the gear
   /// reads as deliberate rather than as sloppy packing.
   void _paintToleranceMargin(Canvas canvas, ViewGeometry geometry) {
-    final tolerance = plan.tolerance;
-    if (tolerance <= 0) return;
+    if (plan.tolerance <= 0) return;
+    final margin = wallMarginFor(plan.tolerance);
 
     // A flat plan's depth axis is a fiction, so it has no margin to show.
     final horizontal = axis == ViewAxis.side && !plan.isThreeDimensional
         ? 0.0
-        : tolerance;
+        : margin;
 
     final extents = extentsFor(plan, axis);
     final usableWidth = extents.horizontal - horizontal * 2;
-    final usableHeight = extents.vertical - tolerance * 2;
+    final usableHeight = extents.vertical - margin * 2;
     if (usableWidth <= 0 || usableHeight <= 0) return;
 
     canvas.drawRect(
-      geometry.toCanvas(horizontal, tolerance, usableWidth, usableHeight),
+      geometry.toCanvas(horizontal, margin, usableWidth, usableHeight),
       Paint()
         ..color = toleranceColor
         ..style = PaintingStyle.stroke
@@ -302,6 +318,7 @@ class ContainerView extends StatefulWidget {
     required this.onDragged,
     required this.onDragEnded,
     required this.onRotate,
+    this.fixedScale,
   });
 
   final Plan plan;
@@ -320,6 +337,10 @@ class ContainerView extends StatefulWidget {
 
   /// Turns the selected gear a quarter turn in *this* view's plane.
   final ValueChanged<String> onRotate;
+
+  /// Draw at this many pixels per centimetre instead of fitting to the space,
+  /// so a neighbouring view showing the same height axis agrees with this one.
+  final double? fixedScale;
 
   @override
   State<ContainerView> createState() => _ContainerViewState();
@@ -344,14 +365,24 @@ class _ContainerViewState extends State<ContainerView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 4),
-          child: Text(
-            '${widget.axis.label} · '
-            '${unit.format(extents.horizontal)} × '
-            '${unit.formatWithSymbol(extents.vertical)}',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+        // A fixed height for the label, so a narrow side view whose dimensions
+        // wrap onto two lines still starts its board level with the front's.
+        SizedBox(
+          height: kViewLabelHeight,
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                '${widget.axis.label} · '
+                '${unit.format(extents.horizontal)} × '
+                '${unit.formatWithSymbol(extents.vertical)}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ),
@@ -369,6 +400,7 @@ class _ContainerViewState extends State<ContainerView> {
                 labelColor: Colors.black.withValues(alpha: 0.8),
                 emptyColor: theme.colorScheme.surfaceContainerHighest,
                 toleranceColor: theme.colorScheme.outlineVariant,
+                fixedScale: widget.fixedScale,
               );
 
               final board = GestureDetector(
@@ -454,4 +486,41 @@ class UnitScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(UnitScope oldWidget) => oldWidget.unit != unit;
+}
+
+/// Space reserved above each view for its axis label. Enough for two lines, so
+/// a narrow side view whose dimensions wrap does not sit lower than the front.
+const double kViewLabelHeight = 34.0;
+
+/// Breathing room around a board, so its outline is not clipped.
+const double kViewPadding = 6.0;
+
+/// Space between the front and side views.
+const double kViewGap = 12.0;
+
+/// The pixels-per-centimetre both views of [plan] should be drawn at.
+///
+/// The two views sit side by side and share the container's height, so one
+/// scale has to satisfy both: the widths add up across the row, and the height
+/// has to fit whatever vertical room there is. Drawn at separate scales, a deep
+/// container's side view ends up towering over the front view of the same bag.
+double sharedScaleFor(
+  Plan plan,
+  {required double availableWidth,
+  required double availableHeight}) {
+  final totalPlanWidth = plan.container.width + plan.workingDepth;
+  final height = plan.container.height;
+  if (totalPlanWidth <= 0 || height <= 0) return 1;
+
+  // Each view carries its own padding, hence four lots across the row.
+  final usableWidth = math.max(
+    availableWidth - kViewGap - kViewPadding * 4,
+    1.0,
+  );
+  final byWidth = usableWidth / totalPlanWidth;
+
+  if (!availableHeight.isFinite) return byWidth;
+
+  final usableHeight = math.max(availableHeight - kViewPadding * 2, 1.0);
+  return math.min(byWidth, usableHeight / height);
 }

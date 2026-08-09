@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import 'diagram.dart';
@@ -189,24 +187,22 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
   /// The height the diagram needs to show the container at its true proportions
   /// across [availableWidth], including the axis label above each view.
   static double _diagramHeightFor(Plan plan, double availableWidth) {
-    const labelHeight = 20.0;
-
-    double heightFor(double width, double planWidth, double planHeight) {
-      if (planWidth <= 0) return 0;
-      return width * planHeight / planWidth;
-    }
-
     final container = plan.container;
+
     if (!plan.isThreeDimensional) {
-      return heightFor(availableWidth, container.width, container.height) +
-          labelHeight;
+      if (container.width <= 0) return kViewLabelHeight;
+      final scale = (availableWidth - kViewPadding * 2) / container.width;
+      return container.height * scale + kViewPadding * 2 + kViewLabelHeight;
     }
 
-    // Matches the 3:2 split the two views are laid out with.
-    final usable = availableWidth - 12;
-    final front = heightFor(usable * 3 / 5, container.width, container.height);
-    final side = heightFor(usable * 2 / 5, container.depth!, container.height);
-    return math.max(front, side) + labelHeight;
+    // Unbounded height: this is asking how tall the diagram wants to be, and
+    // the caller clamps it.
+    final scale = sharedScaleFor(
+      plan,
+      availableWidth: availableWidth,
+      availableHeight: double.infinity,
+    );
+    return container.height * scale + kViewPadding * 2 + kViewLabelHeight;
   }
 
   void _report(String message) {
@@ -404,7 +400,7 @@ class _Diagram extends StatelessWidget {
     );
   }
 
-  Widget _view(ViewAxis axis) => ContainerView(
+  Widget _view(ViewAxis axis, {double? fixedScale}) => ContainerView(
     plan: plan,
     axis: axis,
     issues: issues,
@@ -413,21 +409,41 @@ class _Diagram extends StatelessWidget {
     onDragged: (entryId, delta) => _onDragged(axis, entryId, delta),
     onDragEnded: store.flush,
     onRotate: (entryId) => onRotate(axis, entryId),
+    fixedScale: fixedScale,
   );
 
   @override
   Widget build(BuildContext context) {
     if (!plan.isThreeDimensional) return _view(ViewAxis.front);
 
-    // The side view only needs to show depth, which is usually the smallest
-    // dimension, so give the front view the bulk of the room.
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(flex: 3, child: _view(ViewAxis.front)),
-        const SizedBox(width: 12),
-        Expanded(flex: 2, child: _view(ViewAxis.side)),
-      ],
+    // Both views draw the container's height, so they have to share one scale.
+    // Letting each fit its own box independently made a deep container's side
+    // view tower over the front view of the very same bag.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scale = sharedScaleFor(
+          plan,
+          availableWidth: constraints.maxWidth,
+          availableHeight: constraints.maxHeight - kViewLabelHeight,
+        );
+
+        // Widths in proportion to the real dimensions, so depth reads honestly
+        // against width instead of always taking two fifths of the row.
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: plan.container.width * scale + kViewPadding * 2,
+              child: _view(ViewAxis.front, fixedScale: scale),
+            ),
+            const SizedBox(width: kViewGap),
+            SizedBox(
+              width: plan.workingDepth * scale + kViewPadding * 2,
+              child: _view(ViewAxis.side, fixedScale: scale),
+            ),
+          ],
+        );
+      },
     );
   }
 }

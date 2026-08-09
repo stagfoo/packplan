@@ -72,18 +72,27 @@ class _Bounds {
       limitX <= originX || limitY <= originY || limitZ <= originZ;
 }
 
+/// How much a tolerance takes off a single wall.
+///
+/// Every piece of gear is treated as carrying a halo of half the tolerance on
+/// each side. Two pieces therefore end up a full tolerance apart, while a
+/// container loses one tolerance from each *dimension* rather than two — so a
+/// 3 cm tolerance turns a 105 cm tub into 102 cm of usable depth, which is what
+/// the number reads like.
+double wallMarginFor(double tolerance) => tolerance / 2;
+
 _Bounds _boundsFor(Plan plan) {
-  final tolerance = plan.tolerance;
+  final margin = wallMarginFor(plan.tolerance);
   // A flat plan's depth axis is a fiction, so tolerance must not eat into it.
-  final depthTolerance = plan.isThreeDimensional ? tolerance : 0.0;
+  final depthMargin = plan.isThreeDimensional ? margin : 0.0;
 
   return _Bounds(
-    originX: tolerance,
-    originY: tolerance,
-    originZ: depthTolerance,
-    limitX: plan.container.width - tolerance,
-    limitY: plan.container.height - tolerance,
-    limitZ: plan.workingDepth - depthTolerance,
+    originX: margin,
+    originY: margin,
+    originZ: depthMargin,
+    limitX: plan.container.width - margin,
+    limitY: plan.container.height - margin,
+    limitZ: plan.workingDepth - depthMargin,
   );
 }
 

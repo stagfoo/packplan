@@ -19,22 +19,16 @@ void expectNoOverlaps(PackResult result, {double clearance = 0}) {
 }
 
 void expectInsideContainer(PackResult result, Plan plan) {
-  final tolerance = plan.tolerance;
-  final depthTolerance = plan.isThreeDimensional ? tolerance : 0.0;
+  final margin = wallMarginFor(plan.tolerance);
+  final depthMargin = plan.isThreeDimensional ? margin : 0.0;
 
   for (final placement in result.placements.values) {
-    expect(placement.x, greaterThanOrEqualTo(tolerance));
-    expect(placement.y, greaterThanOrEqualTo(tolerance));
-    expect(placement.z, greaterThanOrEqualTo(depthTolerance));
-    expect(placement.right, lessThanOrEqualTo(plan.container.width - tolerance));
-    expect(
-      placement.bottom,
-      lessThanOrEqualTo(plan.container.height - tolerance),
-    );
-    expect(
-      placement.back,
-      lessThanOrEqualTo(plan.workingDepth - depthTolerance),
-    );
+    expect(placement.x, greaterThanOrEqualTo(margin));
+    expect(placement.y, greaterThanOrEqualTo(margin));
+    expect(placement.z, greaterThanOrEqualTo(depthMargin));
+    expect(placement.right, lessThanOrEqualTo(plan.container.width - margin));
+    expect(placement.bottom, lessThanOrEqualTo(plan.container.height - margin));
+    expect(placement.back, lessThanOrEqualTo(plan.workingDepth - depthMargin));
   }
 }
 
@@ -253,6 +247,53 @@ void main() {
   });
 
   group('tolerance', () {
+    test('takes one tolerance off each dimension, not two', () {
+      // A 3 cm tolerance turns a 105 cm tub into 102 cm of usable depth, so a
+      // 100 cm box still goes in. Half the gap sits against each wall.
+      final plan = planOf(
+        width: 300,
+        height: 300,
+        depth: 105,
+        tolerance: 3,
+        items: [gear('chuckbox', width: 200, height: 100, depth: 100)],
+      );
+
+      final result = packPlan(plan);
+
+      expect(result.everythingFits, isTrue);
+      expect(result.placements['chuckbox']!.z, 1.5);
+      expectInsideContainer(result, plan);
+    });
+
+    test('a box too big for the usable space is still refused', () {
+      // Every side is over the 102 cm the tolerance leaves, so no amount of
+      // turning gets it in.
+      final plan = planOf(
+        width: 300,
+        height: 300,
+        depth: 105,
+        tolerance: 3,
+        items: [gear('crate', width: 200, height: 150, depth: 103)],
+      );
+
+      expect(packPlan(plan).unfitted.map((e) => e.id), ['crate']);
+    });
+
+    test('but turning it can save a box that is only slightly too deep', () {
+      final plan = planOf(
+        width: 300,
+        height: 300,
+        depth: 105,
+        tolerance: 3,
+        items: [gear('chuckbox', width: 200, height: 100, depth: 103)],
+      );
+
+      // 103 will not go in the 102 of usable depth, but 100 will.
+      final result = packPlan(plan);
+      expect(result.everythingFits, isTrue);
+      expect(result.placements['chuckbox']!.depth, lessThanOrEqualTo(102));
+    });
+
     test('keeps gear clear of the container walls', () {
       final plan = planOf(
         width: 20,
@@ -263,8 +304,9 @@ void main() {
 
       final placement = packPlan(plan).placements['a']!;
 
-      expect(placement.x, 1);
-      expect(placement.y, 1);
+      // Half the tolerance against each wall.
+      expect(placement.x, 0.5);
+      expect(placement.y, 0.5);
       expectInsideContainer(packPlan(plan), plan);
     });
 
@@ -319,7 +361,7 @@ void main() {
         items: [gear('a', width: 5, height: 5, depth: 5)],
       );
 
-      expect(packPlan(plan).placements['a']!.z, 1);
+      expect(packPlan(plan).placements['a']!.z, 0.5);
     });
 
     test('does not eat the invented depth axis of a flat plan', () {
@@ -340,7 +382,8 @@ void main() {
       final plan = planOf(
         width: 10,
         height: 10,
-        tolerance: 6,
+        // More than the container is wide, so nothing can fit.
+        tolerance: 12,
         items: [gear('a', width: 1, height: 1)],
       );
 

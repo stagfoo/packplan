@@ -587,6 +587,19 @@ class GearStore extends ChangeNotifier {
     await _commit();
   }
 
+  /// Lays a view on its side, or puts it back. Purely how the plan is drawn —
+  /// nothing about where the gear sits changes.
+  Future<void> toggleViewSwap(String planId, String viewName) async {
+    final record = planRecordById(planId);
+    if (record == null) return;
+
+    final swapped = {...record.swappedViews};
+    if (!swapped.remove(viewName)) swapped.add(viewName);
+
+    _replace(record.copyWith(swappedViews: swapped));
+    await _commit();
+  }
+
   Future<void> deletePlan(String planId) async {
     _plans.removeWhere((plan) => plan.id == planId);
     await _commit();
@@ -626,6 +639,7 @@ class GearStore extends ChangeNotifier {
       tolerance: record.tolerance,
       items: items,
       placements: placements,
+      swappedViews: {...record.swappedViews},
     );
 
     _plans.add(copy);

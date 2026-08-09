@@ -482,16 +482,59 @@ void main() {
       await tester.pumpAndSettle();
 
       // One button per view, and the plan is three-dimensional.
-      final buttons = find.byIcon(Icons.rotate_90_degrees_cw_outlined);
-      expect(buttons, findsNWidgets(2));
+      expect(
+        find.byIcon(Icons.rotate_90_degrees_cw_outlined),
+        findsNWidgets(2),
+      );
+      expect(planId, isNotEmpty);
+    });
 
-      await tester.tap(buttons.first);
+    testWidgets('the upper view turns width against depth', (tester) async {
+      late String planId;
+      await seed(tester, () async {
+        await store.load();
+        // Deep enough to take the box turned side-on, unlike the Camp bag.
+        final bag = await store.addItem(
+          name: 'Trailer',
+          width: 90,
+          height: 50,
+          depth: 60,
+          isContainer: true,
+        );
+        final plan = (await store.addPlan(
+          containerItemId: bag.id,
+          name: 'Trailer',
+        ))!;
+        planId = plan.id;
+        final box = await store.addItem(
+          name: 'Chuckbox',
+          width: 45,
+          height: 30,
+          depth: 20,
+        );
+        await store.addGear(planId, box.id);
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Trailer'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chuckbox'));
+      await tester.pumpAndSettle();
+
+      // The upper view is the top view, so its turn swaps width and depth.
+      await tester.tap(
+        find.byIcon(Icons.rotate_90_degrees_cw_outlined).first,
+      );
       await tester.pumpAndSettle();
 
       final placement = store.planFor(planId)!.entries.single.placement!;
-      expect(placement.width, 30);
-      expect(placement.height, 45);
+      expect(placement.width, 20);
+      expect(placement.height, 30);
+      expect(placement.depth, 45);
     });
+
+
 
     testWidgets('a turn that cannot fit says so and changes nothing', (
       tester,
@@ -509,7 +552,7 @@ void main() {
       await tester.tap(find.text('Chuckbox'));
       await tester.pumpAndSettle();
 
-      // The side view's button: the box would need 30 cm of a 20 cm depth.
+      // The lower view is the side view: the box would need 30 of a 20 depth.
       await tester.tap(find.byIcon(Icons.rotate_90_degrees_cw_outlined).last);
       await tester.pumpAndSettle();
 

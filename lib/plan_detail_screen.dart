@@ -97,6 +97,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
             );
 
             return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (noSpace)
                   _Banner(
@@ -130,6 +131,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                     plan.isThreeDimensional
                         ? 'Drag gear in either view to adjust'
                         : 'Drag gear to adjust',
+                    textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -197,12 +199,23 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
 
     // Unbounded height: this is asking how tall the diagram wants to be, and
     // the caller clamps it.
+    final views = viewsFor(plan);
     final scale = sharedScaleFor(
       plan,
+      views,
       availableWidth: availableWidth,
       availableHeight: double.infinity,
     );
-    return container.height * scale + kViewPadding * 2 + kViewLabelHeight;
+
+    var total = kViewGap * (views.length - 1);
+    for (final entry in views) {
+      final axes = axesFor(entry.view, swapped: entry.swapped);
+      total +=
+          containerExtent(plan, axes.vertical) * scale +
+          kViewPadding * 2 +
+          kViewLabelHeight;
+    }
+    return total;
   }
 
   void _report(String message) {
@@ -212,13 +225,12 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _rotate(ViewAxis axis, String entryId) async {
+  Future<void> _rotate(ViewAxis axis, bool swapped, String entryId) async {
+    final axes = axesFor(axis, swapped: swapped);
     final outcome = await widget.store.rotateGear(
       widget.planId,
       entryId,
-      axis == ViewAxis.front
-          ? RotationPlane.widthHeight
-          : RotationPlane.depthHeight,
+      rotationPlaneFor(axes.horizontal, axes.vertical),
     );
 
     switch (outcome) {
@@ -228,7 +240,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
       case RotateOutcome.wontFit:
         _report("It doesn't fit that way round.");
       case RotateOutcome.noDepth:
-        _report('Give this a depth before turning it on its side.');
+        _report('Give this a depth before turning it that way.');
     }
   }
 
@@ -386,67 +398,102 @@ class _Diagram extends StatelessWidget {
   final Map<String, Set<PlacementIssue>> issues;
   final String? selectedEntryId;
   final ValueChanged<String?> onSelected;
-  final void Function(ViewAxis axis, String entryId) onRotate;
+  final void Function(ViewAxis axis, bool swapped, String entryId) onRotate;
   final GearStore store;
 
-  void _onDragged(ViewAxis axis, String entryId, Offset planDelta) {
-    // Both views share the vertical axis; they differ in what runs across.
+  void _onDragged(
+    ViewAxis axis,
+    bool swapped,
+    String entryId,
+    Offset planDelta,
+  ) {
+    // A drag moves along whichever two plan axes this view happens to show.
+    final axes = axesFor(axis, swapped: swapped);
+    final deltas = <PlanAxis, double>{
+      axes.horizontal: planDelta.dx,
+      axes.vertical: planDelta.dy,
+    };
+
     store.moveGear(
       plan.id,
       entryId,
-      dx: axis == ViewAxis.front ? planDelta.dx : 0,
-      dz: axis == ViewAxis.side ? planDelta.dx : 0,
-      dy: planDelta.dy,
+      dx: deltas[PlanAxis.width] ?? 0,
+      dy: deltas[PlanAxis.height] ?? 0,
+      dz: deltas[PlanAxis.depth] ?? 0,
     );
   }
 
-  Widget _view(ViewAxis axis, {double? fixedScale}) => ContainerView(
-    plan: plan,
-    axis: axis,
-    issues: issues,
-    selectedEntryId: selectedEntryId,
-    onSelected: onSelected,
-    onDragged: (entryId, delta) => _onDragged(axis, entryId, delta),
-    onDragEnded: store.flush,
-    onRotate: (entryId) => onRotate(axis, entryId),
-    fixedScale: fixedScale,
-  );
+  Widget _view(ViewAxis axis, {double? fixedScale}) {
+    final swapped = plan.swappedViews.contains(axis.name);
+    return ContainerView(
+      plan: plan,
+      axis: axis,
+      swapped: swapped,
+      issues: issues,
+      selectedEntryId: selectedEntryId,
+      onSelected: onSelected,
+      onDragged: (entryId, delta) =>
+          _onDragged(axis, swapped, entryId, delta),
+      onDragEnded: store.flush,
+      onRotate: (entryId) => onRotate(axis, swapped, entryId),
+      onSwapAxes: () => store.toggleViewSwap(plan.id, axis.name),
+      fixedScale: fixedScale,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     if (!plan.isThreeDimensional) return _view(ViewAxis.front);
 
-    // Both views draw the container's height, so they have to share one scale.
-    // Letting each fit its own box independently made a deep container's side
-    // view tower over the front view of the very same bag.
+    final views = viewsFor(plan);
+
+    // Every view has to share one scale, or the same container reads as a
+    // different size in each and nothing on screen is comparable.
     return LayoutBuilder(
       builder: (context, constraints) {
         final scale = sharedScaleFor(
           plan,
+          views,
           availableWidth: constraints.maxWidth,
-          availableHeight: constraints.maxHeight - kViewLabelHeight,
+          availableHeight: constraints.maxHeight,
         );
 
-        // Widths in proportion to the real dimensions, so depth reads honestly
-        // against width instead of always taking two fifths of the row.
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              width: plan.container.width * scale + kViewPadding * 2,
-              child: _view(ViewAxis.front, fixedScale: scale),
-            ),
-            const SizedBox(width: kViewGap),
-            SizedBox(
-              width: plan.workingDepth * scale + kViewPadding * 2,
-              child: _view(ViewAxis.side, fixedScale: scale),
-            ),
+            for (var i = 0; i < views.length; i++) ...[
+              if (i > 0) const SizedBox(height: kViewGap),
+              // Full width, so a narrow view's label still has room to print;
+              // the board itself is pinned left inside it.
+              SizedBox(
+                width: double.infinity,
+                height:
+                    containerExtent(
+                      plan,
+                      axesFor(views[i].view, swapped: views[i].swapped).vertical,
+                    ) *
+                        scale +
+                    kViewPadding * 2 +
+                    kViewLabelHeight,
+                child: _view(views[i].view, fixedScale: scale),
+              ),
+            ],
           ],
         );
       },
     );
   }
 }
+
+/// The views a plan shows, in the order they are stacked.
+///
+/// Top then side: between them they cover all three axes, and the top view is
+/// the one you actually look at when you pack a tub. Phones have far more
+/// vertical room than horizontal, so they stack rather than sit side by side.
+List<({ViewAxis view, bool swapped})> viewsFor(Plan plan) => [
+  for (final view in const [ViewAxis.top, ViewAxis.side])
+    (view: view, swapped: plan.swappedViews.contains(view.name)),
+];
 
 /// The one-line verdict: how full the container is and what is left over.
 class _SummaryBar extends StatelessWidget {

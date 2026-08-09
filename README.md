@@ -18,12 +18,20 @@ counted when it is packed as gear; only its outside dimensions are.)
 with depth gets a **side view** next to the front view and a volume check;
 without depth it stays a flat plan with a single view and an area check.
 
-**Two views, three axes.** The front view looks at the container head on (width
-across, height up). The side view looks at it from the left (depth across,
-height up). Both are drawn at one shared scale — they show the same height
-axis, so drawing them independently would make the same bag read as two
-different sizes — and their widths are in proportion to the real dimensions, so
-depth reads honestly against width. Between them every axis is covered, which is why dragging in either
+**Two views, three axes.** A plan with depth shows a **top** view (width across,
+depth down — what you look at when you pack a tub) stacked above a **side** view
+(depth across, height up). Between them they cover all three axes, which is why
+dragging in either one is enough to position gear completely. They stack rather
+than sit side by side because phones have far more vertical room.
+
+Both are drawn at **one shared scale**, so the same container never reads as two
+different sizes, and every shape on screen is comparable with every other.
+
+**Swapping a view.** Each view has a swap button that transposes it — the same
+two axes, turned a quarter turn on screen. A tall, narrow container makes for a
+tall, narrow side view that wastes the whole screen; laying it flat is the only
+way it reads on a phone. It changes nothing about where the gear sits, and is
+remembered per view, per plan. Between them every axis is covered, which is why dragging in either
 view is enough to position gear completely — drag left and right in the front
 view to set its x, in the side view to set its depth.
 
@@ -43,8 +51,10 @@ adjustments you made by hand survive.
 
 **Turning gear.** Select a piece and a turn button appears on each view's
 top-right corner. It turns the gear a quarter turn *in that view* — swapping
-width and height in the front view, depth and height from the side — so there
-is never a question of which way round it means. Turns that the container has
+whichever two axes that view shows, so there is never a question of which way
+round it means. With the top and side views up, that is width against depth and
+depth against height; two views cannot offer all three turns at once, so
+standing a box up on its longest side can take more than one press. Turns that the container has
 no room for are refused rather than left sticking out, and flat gear cannot be
 stood on the 1 cm depth the app invents for it.
 

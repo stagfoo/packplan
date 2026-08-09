@@ -6,25 +6,91 @@ import 'models.dart';
 import 'packer.dart';
 import 'units.dart';
 
-/// Which pair of axes a view draws.
-///
-/// The front view looks at the container head on: plan x runs across, plan y
-/// runs up. The side view looks at it from the left: plan z runs across, plan y
-/// still runs up. Between them the two views pin down all three axes, which is
-/// why dragging in either one is enough to position gear completely.
-enum ViewAxis { front, side }
+/// One of the container's three axes, in plan space.
+enum PlanAxis {
+  width('width'),
+  height('height'),
+  depth('depth');
 
-extension ViewAxisLabel on ViewAxis {
-  String get label => switch (this) {
-    ViewAxis.front => 'Front',
-    ViewAxis.side => 'Side',
-  };
+  const PlanAxis(this.label);
+
+  final String label;
 }
+
+/// Which way you are looking at the container.
+///
+/// Between them the views on screen have to cover all three axes, or some
+/// dimension would be impossible to drag. Front plus side does it; so does top
+/// plus side, which is what a plan with depth shows — the top view is the one
+/// you actually look at when you pack a tub.
+enum ViewAxis {
+  front('Front'),
+  top('Top'),
+  side('Side');
+
+  const ViewAxis(this.label);
+
+  final String label;
+}
+
+/// The pair of plan axes a view draws, once any swap is applied.
+///
+/// Swapping transposes the view — the same two axes, turned a quarter turn on
+/// screen. A tall, narrow container makes for a tall, narrow side view, and
+/// laying it flat is the only way it reads on a phone.
+({PlanAxis horizontal, PlanAxis vertical}) axesFor(
+  ViewAxis view, {
+  bool swapped = false,
+}) {
+  final natural = switch (view) {
+    ViewAxis.front => (horizontal: PlanAxis.width, vertical: PlanAxis.height),
+    ViewAxis.top => (horizontal: PlanAxis.width, vertical: PlanAxis.depth),
+    ViewAxis.side => (horizontal: PlanAxis.depth, vertical: PlanAxis.height),
+  };
+  return swapped
+      ? (horizontal: natural.vertical, vertical: natural.horizontal)
+      : natural;
+}
+
+/// The axis running into the screen for a view showing [horizontal] and
+/// [vertical] — what decides which gear is drawn in front of which.
+PlanAxis axisIntoScreen(PlanAxis horizontal, PlanAxis vertical) =>
+    PlanAxis.values.firstWhere(
+      (axis) => axis != horizontal && axis != vertical,
+    );
+
+/// The turn a view's two axes describe, for the rotate button.
+RotationPlane rotationPlaneFor(PlanAxis horizontal, PlanAxis vertical) {
+  final pair = {horizontal, vertical};
+  if (pair.containsAll({PlanAxis.width, PlanAxis.height})) {
+    return RotationPlane.widthHeight;
+  }
+  if (pair.containsAll({PlanAxis.depth, PlanAxis.height})) {
+    return RotationPlane.depthHeight;
+  }
+  return RotationPlane.widthDepth;
+}
+
+/// How far the container reaches along [axis].
+double containerExtent(Plan plan, PlanAxis axis) => switch (axis) {
+  PlanAxis.width => plan.container.width,
+  PlanAxis.height => plan.container.height,
+  PlanAxis.depth => plan.workingDepth,
+};
+
+/// Where a placement sits along [axis], and how far it reaches.
+({double offset, double size}) placementSpan(Placement placement, PlanAxis axis) =>
+    switch (axis) {
+      PlanAxis.width => (offset: placement.x, size: placement.width),
+      PlanAxis.height => (offset: placement.y, size: placement.height),
+      PlanAxis.depth => (offset: placement.z, size: placement.depth),
+    };
 
 /// Maps between plan centimetres and canvas pixels for one view.
 ///
-/// Plan y is measured up from the bottom of the container, so a packed
-/// container settles on its floor instead of hanging from its lid.
+/// The vertical axis is flipped only when it is the container's height, so a
+/// packed container settles on its floor instead of hanging from its lid.
+/// Depth and width read top-down, the way you look into a bag from above.
 class ViewGeometry {
   const ViewGeometry({
     required this.planWidth,
@@ -32,6 +98,7 @@ class ViewGeometry {
     required this.size,
     this.padding = kViewPadding,
     this.fixedScale,
+    this.flipVertical = true,
   });
 
   final double planWidth;
@@ -41,11 +108,13 @@ class ViewGeometry {
 
   /// Forces a scale rather than fitting to [size].
   ///
-  /// The front and side views share the height axis, so they have to be drawn
-  /// at one scale or the same container reads as two different sizes and the
-  /// depth view looks nothing like the front. The screen works the scale out
-  /// across both views and hands it to each.
+  /// Views drawn together have to share a scale, or the same container reads as
+  /// two different sizes. The screen works it out across all of them and hands
+  /// it to each.
   final double? fixedScale;
+
+  /// Whether plan zero sits at the bottom of the board rather than the top.
+  final bool flipVertical;
 
   double get scale {
     final forced = fixedScale;
@@ -58,47 +127,34 @@ class ViewGeometry {
 
   Size get boardSize => Size(planWidth * scale, planHeight * scale);
 
-  Offset get origin => Offset(
-    (size.width - boardSize.width) / 2,
-    (size.height - boardSize.height) / 2,
-  );
+  /// A view drawn on its own centres in whatever room it has. Views drawn
+  /// together are pinned to the top left instead, so their boards line up down
+  /// the stack and each one's label gets the full width to print in.
+  Offset get origin => fixedScale != null
+      ? Offset(padding, padding)
+      : Offset(
+          (size.width - boardSize.width) / 2,
+          (size.height - boardSize.height) / 2,
+        );
 
   Rect get boardRect => origin & boardSize;
 
-  /// Converts a plan-space rectangle to canvas pixels, flipping the y axis.
+  /// Converts a plan-space rectangle to canvas pixels.
   Rect toCanvas(double x, double y, double width, double height) =>
       Rect.fromLTWH(
         origin.dx + x * scale,
-        origin.dy + (planHeight - y - height) * scale,
+        origin.dy +
+            (flipVertical ? planHeight - y - height : y) * scale,
         width * scale,
         height * scale,
       );
 
-  /// Converts a canvas delta to a plan-space delta. The y component is negated
-  /// because dragging up on screen increases plan y.
-  Offset deltaToPlan(Offset canvasDelta) =>
-      Offset(canvasDelta.dx / scale, -canvasDelta.dy / scale);
+  /// Converts a canvas delta to a plan-space delta.
+  Offset deltaToPlan(Offset canvasDelta) => Offset(
+    canvasDelta.dx / scale,
+    (flipVertical ? -canvasDelta.dy : canvasDelta.dy) / scale,
+  );
 }
-
-/// The horizontal and vertical plan extents a container occupies in [axis].
-({double horizontal, double vertical}) extentsFor(Plan plan, ViewAxis axis) =>
-    switch (axis) {
-      ViewAxis.front => (
-        horizontal: plan.container.width,
-        vertical: plan.container.height,
-      ),
-      ViewAxis.side => (
-        horizontal: plan.workingDepth,
-        vertical: plan.container.height,
-      ),
-    };
-
-/// The horizontal position and size a placement occupies in [axis].
-({double offset, double size}) spanFor(Placement placement, ViewAxis axis) =>
-    switch (axis) {
-      ViewAxis.front => (offset: placement.x, size: placement.width),
-      ViewAxis.side => (offset: placement.z, size: placement.depth),
-    };
 
 /// Draws one orthographic view of a packed container.
 class ContainerViewPainter extends CustomPainter {
@@ -113,6 +169,7 @@ class ContainerViewPainter extends CustomPainter {
     required this.emptyColor,
     required this.toleranceColor,
     this.fixedScale,
+    this.swapped = false,
   });
 
   final Plan plan;
@@ -125,18 +182,24 @@ class ContainerViewPainter extends CustomPainter {
   final Color emptyColor;
   final Color toleranceColor;
 
-  /// Set when this view is drawn beside another and they must agree.
+  /// Set when this view is drawn with others and they must agree.
   final double? fixedScale;
 
-  ViewGeometry geometryFor(Size size) {
-    final extents = extentsFor(plan, axis);
-    return ViewGeometry(
-      planWidth: extents.horizontal,
-      planHeight: extents.vertical,
-      size: size,
-      fixedScale: fixedScale,
-    );
-  }
+  /// Whether this view is transposed — the same axes, a quarter turn on screen.
+  final bool swapped;
+
+  ({PlanAxis horizontal, PlanAxis vertical}) get axes =>
+      axesFor(axis, swapped: swapped);
+
+  bool get _flipVertical => axes.vertical == PlanAxis.height;
+
+  ViewGeometry geometryFor(Size size) => ViewGeometry(
+    planWidth: containerExtent(plan, axes.horizontal),
+    planHeight: containerExtent(plan, axes.vertical),
+    size: size,
+    fixedScale: fixedScale,
+    flipVertical: _flipVertical,
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -172,17 +235,18 @@ class ContainerViewPainter extends CustomPainter {
     final margin = wallMarginFor(plan.tolerance);
 
     // A flat plan's depth axis is a fiction, so it has no margin to show.
-    final horizontal = axis == ViewAxis.side && !plan.isThreeDimensional
-        ? 0.0
-        : margin;
+    double marginOn(PlanAxis planAxis) =>
+        planAxis == PlanAxis.depth && !plan.isThreeDimensional ? 0.0 : margin;
 
-    final extents = extentsFor(plan, axis);
-    final usableWidth = extents.horizontal - horizontal * 2;
-    final usableHeight = extents.vertical - margin * 2;
+    final horizontal = marginOn(axes.horizontal);
+    final vertical = marginOn(axes.vertical);
+    final usableWidth =
+        containerExtent(plan, axes.horizontal) - horizontal * 2;
+    final usableHeight = containerExtent(plan, axes.vertical) - vertical * 2;
     if (usableWidth <= 0 || usableHeight <= 0) return;
 
     canvas.drawRect(
-      geometry.toCanvas(horizontal, margin, usableWidth, usableHeight),
+      geometry.toCanvas(horizontal, vertical, usableWidth, usableHeight),
       Paint()
         ..color = toleranceColor
         ..style = PaintingStyle.stroke
@@ -195,16 +259,13 @@ class ContainerViewPainter extends CustomPainter {
   List<PlanEntry> _drawOrder() {
     final entries = plan.packed;
 
+    // Farthest first along whichever axis runs into the screen, so nearer
+    // pieces overlap them the way they would in a real projection.
+    final into = axisIntoScreen(axes.horizontal, axes.vertical);
     entries.sort((a, b) {
-      // Looking at the front, "far" means a large z. Looking from the left,
-      // "far" means a large x.
-      final aDepth = axis == ViewAxis.front
-          ? a.placement!.z
-          : a.placement!.x;
-      final bDepth = axis == ViewAxis.front
-          ? b.placement!.z
-          : b.placement!.x;
-      final byDepth = bDepth.compareTo(aDepth);
+      final byDepth = placementSpan(b.placement!, into).offset.compareTo(
+        placementSpan(a.placement!, into).offset,
+      );
       if (byDepth != 0) return byDepth;
       return a.id.compareTo(b.id);
     });
@@ -220,12 +281,13 @@ class ContainerViewPainter extends CustomPainter {
 
   void _paintGear(Canvas canvas, ViewGeometry geometry, PlanEntry entry) {
     final placement = entry.placement!;
-    final span = spanFor(placement, axis);
+    final across = placementSpan(placement, axes.horizontal);
+    final down = placementSpan(placement, axes.vertical);
     final rect = geometry.toCanvas(
-      span.offset,
-      placement.y,
-      span.size,
-      placement.height,
+      across.offset,
+      down.offset,
+      across.size,
+      down.size,
     );
     final rounded = RRect.fromRectAndRadius(rect, const Radius.circular(3));
 
@@ -289,12 +351,13 @@ class ContainerViewPainter extends CustomPainter {
   String? entryAt(Offset position, Size size) {
     final geometry = geometryFor(size);
     for (final entry in _drawOrder().reversed) {
-      final span = spanFor(entry.placement!, axis);
+      final across = placementSpan(entry.placement!, axes.horizontal);
+      final down = placementSpan(entry.placement!, axes.vertical);
       final rect = geometry.toCanvas(
-        span.offset,
-        entry.placement!.y,
-        span.size,
-        entry.placement!.height,
+        across.offset,
+        down.offset,
+        across.size,
+        down.size,
       );
       if (rect.contains(position)) return entry.id;
     }
@@ -319,6 +382,8 @@ class ContainerView extends StatefulWidget {
     required this.onDragEnded,
     required this.onRotate,
     this.fixedScale,
+    this.swapped = false,
+    this.onSwapAxes,
   });
 
   final Plan plan;
@@ -339,8 +404,14 @@ class ContainerView extends StatefulWidget {
   final ValueChanged<String> onRotate;
 
   /// Draw at this many pixels per centimetre instead of fitting to the space,
-  /// so a neighbouring view showing the same height axis agrees with this one.
+  /// so the views drawn alongside this one agree with it.
   final double? fixedScale;
+
+  /// Whether this view is transposed.
+  final bool swapped;
+
+  /// Lays this view on its side. Null hides the control.
+  final VoidCallback? onSwapAxes;
 
   @override
   State<ContainerView> createState() => _ContainerViewState();
@@ -352,7 +423,7 @@ class _ContainerViewState extends State<ContainerView> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final extents = extentsFor(widget.plan, widget.axis);
+    final axes = axesFor(widget.axis, swapped: widget.swapped);
     final unit = UnitScope.of(context);
 
     // Only placed gear can be turned — there is nothing on the diagram to turn
@@ -365,25 +436,40 @@ class _ContainerViewState extends State<ContainerView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // A fixed height for the label, so a narrow side view whose dimensions
-        // wrap onto two lines still starts its board level with the front's.
         SizedBox(
           height: kViewLabelHeight,
-          child: Align(
-            alignment: Alignment.bottomLeft,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                '${widget.axis.label} · '
-                '${unit.format(extents.horizontal)} × '
-                '${unit.formatWithSymbol(extents.vertical)}',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${widget.axis.label} · '
+                  '${unit.format(containerExtent(widget.plan, axes.horizontal))}'
+                  ' × '
+                  '${unit.formatWithSymbol(containerExtent(widget.plan, axes.vertical))}'
+                  '  (${axes.horizontal.label} × ${axes.vertical.label})',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
+              if (widget.onSwapAxes != null)
+                IconButton(
+                  tooltip: 'Lay the ${widget.axis.label.toLowerCase()} view '
+                      'on its side',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 28,
+                  ),
+                  iconSize: 18,
+                  isSelected: widget.swapped,
+                  icon: const Icon(Icons.swap_horiz),
+                  onPressed: widget.onSwapAxes,
+                ),
+            ],
           ),
         ),
         Expanded(
@@ -401,6 +487,7 @@ class _ContainerViewState extends State<ContainerView> {
                 emptyColor: theme.colorScheme.surfaceContainerHighest,
                 toleranceColor: theme.colorScheme.outlineVariant,
                 fixedScale: widget.fixedScale,
+                swapped: widget.swapped,
               );
 
               final board = GestureDetector(
@@ -498,29 +585,35 @@ const double kViewPadding = 6.0;
 /// Space between the front and side views.
 const double kViewGap = 12.0;
 
-/// The pixels-per-centimetre both views of [plan] should be drawn at.
+/// The pixels-per-centimetre a stack of views should all be drawn at.
 ///
-/// The two views sit side by side and share the container's height, so one
-/// scale has to satisfy both: the widths add up across the row, and the height
-/// has to fit whatever vertical room there is. Drawn at separate scales, a deep
-/// container's side view ends up towering over the front view of the same bag.
+/// Every view has to use one scale, or the same container reads as a different
+/// size in each and the diagram stops being comparable. Stacked, the widest
+/// view sets the horizontal limit and the heights add up.
 double sharedScaleFor(
   Plan plan,
-  {required double availableWidth,
-  required double availableHeight}) {
-  final totalPlanWidth = plan.container.width + plan.workingDepth;
-  final height = plan.container.height;
-  if (totalPlanWidth <= 0 || height <= 0) return 1;
+  List<({ViewAxis view, bool swapped})> views, {
+  required double availableWidth,
+  required double availableHeight,
+}) {
+  if (views.isEmpty) return 1;
 
-  // Each view carries its own padding, hence four lots across the row.
-  final usableWidth = math.max(
-    availableWidth - kViewGap - kViewPadding * 4,
-    1.0,
-  );
-  final byWidth = usableWidth / totalPlanWidth;
+  var widest = 0.0;
+  var totalHeight = 0.0;
+  for (final entry in views) {
+    final axes = axesFor(entry.view, swapped: entry.swapped);
+    widest = math.max(widest, containerExtent(plan, axes.horizontal));
+    totalHeight += containerExtent(plan, axes.vertical);
+  }
+  if (widest <= 0 || totalHeight <= 0) return 1;
 
+  final usableWidth = math.max(availableWidth - kViewPadding * 2, 1.0);
+  final byWidth = usableWidth / widest;
   if (!availableHeight.isFinite) return byWidth;
 
-  final usableHeight = math.max(availableHeight - kViewPadding * 2, 1.0);
-  return math.min(byWidth, usableHeight / height);
+  // Each view carries its own label and padding.
+  final chrome = views.length * (kViewLabelHeight + kViewPadding * 2) +
+      kViewGap * (views.length - 1);
+  final usableHeight = math.max(availableHeight - chrome, 1.0);
+  return math.min(byWidth, usableHeight / totalHeight);
 }

@@ -10,11 +10,14 @@ import 'units.dart';
 /// Named for the plane rather than the view, so nothing outside the UI has to
 /// know which view the user was looking at when they asked.
 enum RotationPlane {
-  /// A turn in the front view: width and height swap.
+  /// A turn seen from the front: width and height swap.
   widthHeight,
 
-  /// A turn in the side view: depth and height swap.
+  /// A turn seen from the side: depth and height swap.
   depthHeight,
+
+  /// A turn seen from above: width and depth swap.
+  widthDepth,
 }
 
 /// Where a piece of gear sits inside its container.
@@ -77,6 +80,15 @@ class Placement {
       width: width,
       height: depth,
       depth: height,
+    ),
+    RotationPlane.widthDepth => Placement(
+      entryId: entryId,
+      x: x,
+      y: y,
+      z: z,
+      width: depth,
+      height: height,
+      depth: width,
     ),
   };
 
@@ -273,6 +285,7 @@ class PlanRecord {
     this.tolerance = 0,
     this.items = const [],
     this.placements = const {},
+    this.swappedViews = const {},
   });
 
   final String id;
@@ -292,12 +305,18 @@ class PlanRecord {
   /// Placements by *entry* id. An entry with no placement is not packed.
   final Map<String, Placement> placements;
 
+  /// Views the user has turned on their side, by view name. A tall, narrow
+  /// container makes for a tall, narrow side view; swapping its axes lays it
+  /// flat so it reads on a phone.
+  final Set<String> swappedViews;
+
   PlanRecord copyWith({
     String? name,
     String? containerItemId,
     double? tolerance,
     List<PlanItem>? items,
     Map<String, Placement>? placements,
+    Set<String>? swappedViews,
   }) => PlanRecord(
     id: id,
     name: name ?? this.name,
@@ -305,6 +324,7 @@ class PlanRecord {
     tolerance: tolerance ?? this.tolerance,
     items: items ?? this.items,
     placements: placements ?? this.placements,
+    swappedViews: swappedViews ?? this.swappedViews,
   );
 
   Map<String, dynamic> toJson() => {
@@ -316,6 +336,7 @@ class PlanRecord {
     'placements': placements.map(
       (entryId, placement) => MapEntry(entryId, placement.toJson()),
     ),
+    'swappedViews': swappedViews.toList(),
   };
 
   factory PlanRecord.fromJson(Map<String, dynamic> json) {
@@ -334,6 +355,9 @@ class PlanRecord {
           Placement.fromJson(placement as Map<String, dynamic>),
         ),
       ),
+      swappedViews: (json['swappedViews'] as List<dynamic>? ?? [])
+          .map((view) => view as String)
+          .toSet(),
     );
   }
 }
@@ -424,6 +448,7 @@ class Plan {
   String get id => record.id;
   String get name => record.name;
   double get tolerance => record.tolerance;
+  Set<String> get swappedViews => record.swappedViews;
 
   /// The plan is three-dimensional only when the container and at least one
   /// piece of gear carry a depth. Otherwise the side view has nothing to show.

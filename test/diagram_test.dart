@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:packplan/diagram.dart';
 import 'package:packplan/models.dart';
 import 'package:packplan/packer.dart';
+import 'package:packplan/plan_detail_screen.dart';
 import 'package:packplan/units.dart';
 
 import 'support.dart';
@@ -83,37 +84,145 @@ void main() {
     });
   });
 
-  group('extents and spans', () {
-    test('the front view measures width and height', () {
-      final extents = extentsFor(samplePlan(depth: 20), ViewAxis.front);
-
-      expect(extents.horizontal, 30);
-      expect(extents.vertical, 40);
+  group('view axes', () {
+    test('each view shows a different pair of plan axes', () {
+      expect(axesFor(ViewAxis.front), (
+        horizontal: PlanAxis.width,
+        vertical: PlanAxis.height,
+      ));
+      expect(axesFor(ViewAxis.top), (
+        horizontal: PlanAxis.width,
+        vertical: PlanAxis.depth,
+      ));
+      expect(axesFor(ViewAxis.side), (
+        horizontal: PlanAxis.depth,
+        vertical: PlanAxis.height,
+      ));
     });
 
-    test('the side view measures depth and height', () {
-      final extents = extentsFor(samplePlan(depth: 20), ViewAxis.side);
-
-      expect(extents.horizontal, 20);
-      expect(extents.vertical, 40);
+    test('swapping transposes a view', () {
+      // A tall, narrow side view laid flat.
+      expect(axesFor(ViewAxis.side, swapped: true), (
+        horizontal: PlanAxis.height,
+        vertical: PlanAxis.depth,
+      ));
+      expect(axesFor(ViewAxis.top, swapped: true), (
+        horizontal: PlanAxis.depth,
+        vertical: PlanAxis.width,
+      ));
     });
 
-    test('a flat plan has a nominal side extent', () {
-      expect(extentsFor(samplePlan(), ViewAxis.side).horizontal, 1);
+    test('top and side together still cover all three axes', () {
+      final shown = <PlanAxis>{
+        ...[axesFor(ViewAxis.top), axesFor(ViewAxis.side)].expand(
+          (axes) => [axes.horizontal, axes.vertical],
+        ),
+      };
+
+      // Otherwise some dimension would be impossible to drag.
+      expect(shown, PlanAxis.values.toSet());
     });
 
-    test('a placement spans x in front and z from the side', () {
+    test('the third axis is the one running into the screen', () {
+      expect(axisIntoScreen(PlanAxis.width, PlanAxis.height), PlanAxis.depth);
+      expect(axisIntoScreen(PlanAxis.width, PlanAxis.depth), PlanAxis.height);
+      expect(axisIntoScreen(PlanAxis.depth, PlanAxis.height), PlanAxis.width);
+    });
+
+    test('a view names the turn its two axes describe', () {
+      expect(
+        rotationPlaneFor(PlanAxis.width, PlanAxis.height),
+        RotationPlane.widthHeight,
+      );
+      expect(
+        rotationPlaneFor(PlanAxis.depth, PlanAxis.height),
+        RotationPlane.depthHeight,
+      );
+      expect(
+        rotationPlaneFor(PlanAxis.width, PlanAxis.depth),
+        RotationPlane.widthDepth,
+      );
+      // A swapped view describes the same turn.
+      expect(
+        rotationPlaneFor(PlanAxis.height, PlanAxis.depth),
+        RotationPlane.depthHeight,
+      );
+    });
+
+    test('container extents read off the right axis', () {
+      final plan = samplePlan(depth: 20);
+
+      expect(containerExtent(plan, PlanAxis.width), 30);
+      expect(containerExtent(plan, PlanAxis.height), 40);
+      expect(containerExtent(plan, PlanAxis.depth), 20);
+    });
+
+    test('a flat plan has a nominal depth extent', () {
+      expect(containerExtent(samplePlan(), PlanAxis.depth), 1);
+    });
+
+    test('a placement spans the axis asked for', () {
       final placement = placementAt(
         entryId: 'a',
         x: 3,
+        y: 4,
         z: 7,
         width: 10,
         height: 5,
         depth: 2,
       );
 
-      expect(spanFor(placement, ViewAxis.front), (offset: 3.0, size: 10.0));
-      expect(spanFor(placement, ViewAxis.side), (offset: 7.0, size: 2.0));
+      expect(placementSpan(placement, PlanAxis.width), (
+        offset: 3.0,
+        size: 10.0,
+      ));
+      expect(placementSpan(placement, PlanAxis.height), (
+        offset: 4.0,
+        size: 5.0,
+      ));
+      expect(placementSpan(placement, PlanAxis.depth), (
+        offset: 7.0,
+        size: 2.0,
+      ));
+    });
+  });
+
+  group('vertical flipping', () {
+    test('height reads up from the floor', () {
+      const geometry = ViewGeometry(
+        planWidth: 10,
+        planHeight: 20,
+        size: Size(100, 200),
+        padding: 0,
+      );
+
+      // Gear on the floor touches the bottom of the board.
+      expect(geometry.toCanvas(0, 0, 10, 5).bottom, geometry.boardRect.bottom);
+    });
+
+    test('depth reads down from the top, the way you look into a bag', () {
+      const geometry = ViewGeometry(
+        planWidth: 10,
+        planHeight: 20,
+        size: Size(100, 200),
+        padding: 0,
+        flipVertical: false,
+      );
+
+      // The back of the container is at the top of the board.
+      expect(geometry.toCanvas(0, 0, 10, 5).top, geometry.boardRect.top);
+    });
+
+    test('a drag down means more depth in an unflipped view', () {
+      const geometry = ViewGeometry(
+        planWidth: 10,
+        planHeight: 20,
+        size: Size(100, 200),
+        padding: 0,
+        flipVertical: false,
+      );
+
+      expect(geometry.deltaToPlan(const Offset(0, 10)).dy, greaterThan(0));
     });
   });
 
@@ -302,7 +411,10 @@ void main() {
         ),
       );
 
-      expect(find.text('Front · 300 × 400 mm'), findsOneWidget);
+      expect(
+        find.textContaining('Front · 300 × 400 mm'),
+        findsOneWidget,
+      );
     });
   });
 
@@ -333,63 +445,118 @@ void main() {
       items: [gear('box', width: 200, height: 100, depth: 100)],
     );
 
-    test('both views draw the height they share at the same size', () {
+    test('every view is drawn at the same scale', () {
       final plan = tub();
       final scale = sharedScaleFor(
         plan,
+        viewsFor(plan),
         availableWidth: 660,
         availableHeight: 400,
       );
 
-      final front = ViewGeometry(
-        planWidth: plan.container.width,
-        planHeight: plan.container.height,
-        size: Size(plan.container.width * scale, plan.container.height * scale),
-        padding: kViewPadding,
-        fixedScale: scale,
-      );
-      final side = ViewGeometry(
-        planWidth: plan.workingDepth,
-        planHeight: plan.container.height,
-        size: Size(plan.workingDepth * scale, plan.container.height * scale),
-        padding: kViewPadding,
-        fixedScale: scale,
-      );
+      final boards = [
+        for (final entry in viewsFor(plan))
+          ViewGeometry(
+            planWidth: containerExtent(
+              plan,
+              axesFor(entry.view, swapped: entry.swapped).horizontal,
+            ),
+            planHeight: containerExtent(
+              plan,
+              axesFor(entry.view, swapped: entry.swapped).vertical,
+            ),
+            size: const Size(100, 100),
+            fixedScale: scale,
+          ),
+      ];
 
-      expect(side.boardSize.height, front.boardSize.height);
-      expect(side.scale, front.scale);
+      expect(boards.map((b) => b.scale).toSet(), {scale});
+      // The top view's width and the front-facing width are the same measure,
+      // so they must draw the same size.
+      expect(
+        boards.first.boardSize.width,
+        closeTo(plan.container.width * scale, 1e-9),
+      );
     });
 
     test('depth reads truthfully against width', () {
       final plan = tub();
       final scale = sharedScaleFor(
         plan,
+        viewsFor(plan),
         availableWidth: 660,
         availableHeight: 400,
       );
 
-      final frontWidth = plan.container.width * scale;
-      final sideWidth = plan.workingDepth * scale;
-
-      // 105 of depth against 300 of width.
-      expect(sideWidth / frontWidth, closeTo(105 / 300, 1e-9));
+      // The top view is 300 across and 105 down: depth against width.
+      expect(
+        (plan.workingDepth * scale) / (plan.container.width * scale),
+        closeTo(105 / 300, 1e-9),
+      );
     });
 
-    test('the two views fit the width they are given', () {
+    test('the stack fits the width it is given', () {
       final plan = tub();
       const available = 660.0;
       final scale = sharedScaleFor(
         plan,
+        viewsFor(plan),
         availableWidth: available,
         availableHeight: 400,
       );
 
-      final used =
-          plan.container.width * scale +
-          plan.workingDepth * scale +
-          kViewGap +
-          kViewPadding * 4;
+      for (final entry in viewsFor(plan)) {
+        final axes = axesFor(entry.view, swapped: entry.swapped);
+        final used =
+            containerExtent(plan, axes.horizontal) * scale + kViewPadding * 2;
+        expect(used, lessThanOrEqualTo(available + 1e-9));
+      }
+    });
+
+    test('the stack fits the height it is given', () {
+      final plan = tub();
+      const available = 500.0;
+      final views = viewsFor(plan);
+      final scale = sharedScaleFor(
+        plan,
+        views,
+        availableWidth: 1000,
+        availableHeight: available,
+      );
+
+      var used = kViewGap * (views.length - 1);
+      for (final entry in views) {
+        final axes = axesFor(entry.view, swapped: entry.swapped);
+        used +=
+            containerExtent(plan, axes.vertical) * scale +
+            kViewPadding * 2 +
+            kViewLabelHeight;
+      }
       expect(used, lessThanOrEqualTo(available + 1e-9));
+    });
+
+    test('swapping a view changes what the stack has to fit', () {
+      final plan = tub();
+      final natural = sharedScaleFor(
+        plan,
+        viewsFor(plan),
+        availableWidth: 660,
+        availableHeight: 400,
+      );
+
+      // Laying the side view flat puts its 300 of height across the screen
+      // instead of down it.
+      final laidFlat = sharedScaleFor(
+        plan,
+        const [
+          (view: ViewAxis.top, swapped: false),
+          (view: ViewAxis.side, swapped: true),
+        ],
+        availableWidth: 660,
+        availableHeight: 400,
+      );
+
+      expect(laidFlat, isNot(natural));
     });
 
     test('a tall container is limited by the height instead', () {
@@ -402,6 +569,7 @@ void main() {
 
       final scale = sharedScaleFor(
         plan,
+        viewsFor(plan),
         availableWidth: 1000,
         availableHeight: 200,
       );
@@ -414,18 +582,26 @@ void main() {
 
       final scale = sharedScaleFor(
         plan,
+        viewsFor(plan),
         availableWidth: 660,
         availableHeight: double.infinity,
       );
 
-      expect(scale, closeTo((660 - kViewGap - kViewPadding * 4) / 405, 1e-9));
+      // Stacked, the widest view sets the horizontal limit — the top view's
+      // 300 of width — rather than the two adding up across a row.
+      expect(scale, closeTo((660 - kViewPadding * 2) / 300, 1e-9));
     });
 
     test('a degenerate container does not divide by zero', () {
       final plan = planOf(width: 0, height: 0, depth: 0, items: const []);
 
       expect(
-        sharedScaleFor(plan, availableWidth: 100, availableHeight: 100),
+        sharedScaleFor(
+          plan,
+          viewsFor(plan),
+          availableWidth: 100,
+          availableHeight: 100,
+        ),
         1,
       );
     });

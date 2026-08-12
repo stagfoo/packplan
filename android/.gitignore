@@ -12,3 +12,7 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+# Exception: app/debug.keystore is intentionally committed (debug-only,
+# never used for release signing) so CI and local builds share a stable
+# debug signing identity — see app/build.gradle.kts signingConfigs.debug.
+!app/debug.keystore

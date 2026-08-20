@@ -286,7 +286,7 @@ class PlanRecord {
     this.items = const [],
     this.placements = const {},
     this.swappedViews = const {},
-    this.hiddenViews = const {'front'},
+    this.hiddenViews = const {'front', '3d'},
   });
 
   final String id;
@@ -311,9 +311,11 @@ class PlanRecord {
   /// flat so it reads on a phone.
   final Set<String> swappedViews;
 
-  /// Views the user has hidden, by view name. Defaults to `{'front'}` -
-  /// Top + Side alone already cover all three axes for editing, and Front
-  /// is one tap away rather than crowding a phone screen by default.
+  /// Views the user has hidden, by name - 'front'/'top'/'side' (a
+  /// [ViewAxis]) or '3d' (the orbit preview, not a real axis-based view but
+  /// shown/hidden the same way). Defaults to `{'front', '3d'}` - Top + Side
+  /// alone already cover all three axes for editing, and Front/3D are one
+  /// tap away rather than crowding a phone screen by default.
   final Set<String> hiddenViews;
 
   PlanRecord copyWith({
@@ -368,12 +370,12 @@ class PlanRecord {
           .map((view) => view as String)
           .toSet(),
       // No key at all means this plan predates hiddenViews - fall back to
-      // the same default as a brand-new plan (Front hidden), not an empty
-      // set, so existing plans keep showing exactly what they show today.
-      // A present-but-empty list is a real choice (every view shown) and
-      // stays empty.
+      // the same default as a brand-new plan (Front and 3D hidden), not an
+      // empty set, so existing plans keep showing exactly what they show
+      // today. A present-but-empty list is a real choice (every panel
+      // shown) and stays empty.
       hiddenViews: json['hiddenViews'] == null
-          ? const {'front'}
+          ? const {'front', '3d'}
           : (json['hiddenViews'] as List<dynamic>)
               .map((view) => view as String)
               .toSet(),

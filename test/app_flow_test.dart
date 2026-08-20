@@ -646,7 +646,7 @@ void main() {
       expect(find.text('3D'), findsNothing);
     });
 
-    testWidgets('tapping 3D swaps the diagram for the preview', (
+    testWidgets('the 3D chip toggles the preview panel in and out', (
       tester,
     ) async {
       await seed(tester, () async {
@@ -659,14 +659,15 @@ void main() {
       await tester.tap(find.text('Camp'));
       await tester.pumpAndSettle();
 
+      // 3D starts hidden, same as Front - Top + Side alone cover the plan.
       expect(find.byType(Preview3D), findsNothing);
 
-      await tester.tap(find.text('3D'));
+      await tester.tap(find.widgetWithText(FilterChip, '3D'));
       await tester.pumpAndSettle();
 
       expect(find.byType(Preview3D), findsOneWidget);
 
-      await tester.tap(find.text('Views'));
+      await tester.tap(find.widgetWithText(FilterChip, '3D'));
       await tester.pumpAndSettle();
 
       expect(find.byType(Preview3D), findsNothing);

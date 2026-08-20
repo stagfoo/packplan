@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import 'diagram.dart' show PlanAxis, containerExtent;
+import 'diagram.dart' show PlanAxis, containerExtent, kViewLabelHeight;
 import 'models.dart';
 
 /// A point in plan space (centimetres), reusing the same width/height/depth
@@ -75,20 +75,51 @@ class _Preview3DState extends State<Preview3D> {
     final theme = Theme.of(context);
 
     return LayoutBuilder(
-      builder: (context, constraints) {
-        final size = Size(constraints.maxWidth, constraints.maxHeight);
-        return GestureDetector(
-          onPanUpdate: _onPanUpdate,
-          child: CustomPaint(
-            size: size,
-            painter: _Preview3DPainter(
-              plan: widget.plan,
-              azimuth: _azimuth,
-              elevation: _elevation,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              wireframeColor: widget.plan.container.color,
+      builder: (context, outerConstraints) {
+        // Clamped to whatever height this panel actually got, rather than
+        // always the full kViewLabelHeight - matches the same squeeze-safe
+        // treatment ContainerView gives its own label row.
+        final labelHeight = outerConstraints.maxHeight.isFinite
+            ? math.min(kViewLabelHeight, outerConstraints.maxHeight)
+            : kViewLabelHeight;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: labelHeight,
+              child: Text(
+                '3D · drag to orbit',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
-          ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final size = Size(
+                    constraints.maxWidth,
+                    constraints.maxHeight,
+                  );
+                  return GestureDetector(
+                    onPanUpdate: _onPanUpdate,
+                    child: CustomPaint(
+                      size: size,
+                      painter: _Preview3DPainter(
+                        plan: widget.plan,
+                        azimuth: _azimuth,
+                        elevation: _elevation,
+                        backgroundColor:
+                            theme.colorScheme.surfaceContainerHighest,
+                        wireframeColor: widget.plan.container.color,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
     );
@@ -191,10 +222,18 @@ class _Preview3DPainter extends CustomPainter {
     // Index bits: 4=x, 2=y, 1=z. Each pair below differs in exactly one bit,
     // i.e. is a real edge of the box, not a face diagonal.
     const edges = [
-      [0, 1], [0, 2], [0, 4],
-      [3, 1], [3, 2], [3, 7],
-      [5, 1], [5, 4], [5, 7],
-      [6, 2], [6, 4], [6, 7],
+      [0, 1],
+      [0, 2],
+      [0, 4],
+      [3, 1],
+      [3, 2],
+      [3, 7],
+      [5, 1],
+      [5, 4],
+      [5, 7],
+      [6, 2],
+      [6, 4],
+      [6, 7],
     ];
     final paint = Paint()
       ..color = wireframeColor
@@ -234,8 +273,7 @@ class _Preview3DPainter extends CustomPainter {
       for (final (corners, normal) in specs)
         _Face(
           points: [for (final c in corners) project(c)],
-          depth:
-              corners.map(depthOf).reduce((a, b) => a + b) / corners.length,
+          depth: corners.map(depthOf).reduce((a, b) => a + b) / corners.length,
           color: _shade(baseColor, normal),
         ),
     ];
@@ -244,7 +282,9 @@ class _Preview3DPainter extends CustomPainter {
   Color _shade(Color base, Vec3 normal) {
     final rotated = rotate3(normal, azimuth, elevation);
     final dot =
-        rotated.$1 * _light.$1 + rotated.$2 * _light.$2 + rotated.$3 * _light.$3;
+        rotated.$1 * _light.$1 +
+        rotated.$2 * _light.$2 +
+        rotated.$3 * _light.$3;
     final brightness = (0.55 + 0.45 * dot).clamp(0.35, 1.0);
     return Color.lerp(Colors.black, base, brightness)!;
   }

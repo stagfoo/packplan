@@ -1405,10 +1405,10 @@ void main() {
       ))!;
     }
 
-    test('front starts hidden - top and side are the default pair', () async {
+    test('front and 3D start hidden - top and side are the default pair', () async {
       final plan = await trolley();
 
-      expect(store.planRecordById(plan.id)!.hiddenViews, {'front'});
+      expect(store.planRecordById(plan.id)!.hiddenViews, {'front', '3d'});
     });
 
     test('hiding is remembered per view', () async {
@@ -1416,7 +1416,11 @@ void main() {
 
       await store.toggleViewVisibility(plan.id, 'side');
 
-      expect(store.planRecordById(plan.id)!.hiddenViews, {'front', 'side'});
+      expect(store.planRecordById(plan.id)!.hiddenViews, {
+        'front',
+        '3d',
+        'side',
+      });
       expect(store.planFor(plan.id)!.hiddenViews, contains('side'));
     });
 
@@ -1425,7 +1429,17 @@ void main() {
 
       await store.toggleViewVisibility(plan.id, 'front');
 
-      expect(store.planRecordById(plan.id)!.hiddenViews, isEmpty);
+      expect(store.planRecordById(plan.id)!.hiddenViews, {'3d'});
+    });
+
+    test('the 3D preview toggles the same way as an axis-based view', () async {
+      final plan = await trolley();
+
+      await store.toggleViewVisibility(plan.id, '3d');
+      expect(store.planRecordById(plan.id)!.hiddenViews, {'front'});
+
+      await store.toggleViewVisibility(plan.id, '3d');
+      expect(store.planRecordById(plan.id)!.hiddenViews, {'front', '3d'});
     });
 
     test('hiding moves nothing', () async {
@@ -1454,7 +1468,7 @@ void main() {
 
       final reloaded = await reload();
 
-      expect(reloaded.planRecordById(plan.id)!.hiddenViews, {'front', 'side'});
+      expect(reloaded.planRecordById(plan.id)!.hiddenViews, {'front', '3d', 'side'});
     });
 
     test('a duplicated plan keeps which views are hidden', () async {
@@ -1463,7 +1477,7 @@ void main() {
 
       final copy = await store.duplicatePlan(plan.id);
 
-      expect(store.planRecordById(copy!.id)!.hiddenViews, {'front', 'side'});
+      expect(store.planRecordById(copy!.id)!.hiddenViews, {'front', '3d', 'side'});
     });
   });
 }

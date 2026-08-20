@@ -58,10 +58,9 @@ enum ViewAxis {
 
 /// The axis running into the screen for a view showing [horizontal] and
 /// [vertical] — what decides which gear is drawn in front of which.
-PlanAxis axisIntoScreen(PlanAxis horizontal, PlanAxis vertical) =>
-    PlanAxis.values.firstWhere(
-      (axis) => axis != horizontal && axis != vertical,
-    );
+PlanAxis axisIntoScreen(PlanAxis horizontal, PlanAxis vertical) => PlanAxis
+    .values
+    .firstWhere((axis) => axis != horizontal && axis != vertical);
 
 /// The turn a view's two axes describe, for the rotate button.
 RotationPlane rotationPlaneFor(PlanAxis horizontal, PlanAxis vertical) {
@@ -83,12 +82,14 @@ double containerExtent(Plan plan, PlanAxis axis) => switch (axis) {
 };
 
 /// Where a placement sits along [axis], and how far it reaches.
-({double offset, double size}) placementSpan(Placement placement, PlanAxis axis) =>
-    switch (axis) {
-      PlanAxis.width => (offset: placement.x, size: placement.width),
-      PlanAxis.height => (offset: placement.y, size: placement.height),
-      PlanAxis.depth => (offset: placement.z, size: placement.depth),
-    };
+({double offset, double size}) placementSpan(
+  Placement placement,
+  PlanAxis axis,
+) => switch (axis) {
+  PlanAxis.width => (offset: placement.x, size: placement.width),
+  PlanAxis.height => (offset: placement.y, size: placement.height),
+  PlanAxis.depth => (offset: placement.z, size: placement.depth),
+};
 
 bool _spansOverlap(Placement a, Placement b, PlanAxis axis) {
   final spanA = placementSpan(a, axis);
@@ -200,8 +201,7 @@ class ViewGeometry {
   Rect toCanvas(double x, double y, double width, double height) =>
       Rect.fromLTWH(
         origin.dx + x * scale,
-        origin.dy +
-            (flipVertical ? planHeight - y - height : y) * scale,
+        origin.dy + (flipVertical ? planHeight - y - height : y) * scale,
         width * scale,
         height * scale,
       );
@@ -309,8 +309,7 @@ class ContainerViewPainter extends CustomPainter {
 
     final horizontal = marginOn(axes.horizontal);
     final vertical = marginOn(axes.vertical);
-    final usableWidth =
-        containerExtent(plan, axes.horizontal) - horizontal * 2;
+    final usableWidth = containerExtent(plan, axes.horizontal) - horizontal * 2;
     final usableHeight = containerExtent(plan, axes.vertical) - vertical * 2;
     if (usableWidth <= 0 || usableHeight <= 0) return;
 
@@ -332,9 +331,10 @@ class ContainerViewPainter extends CustomPainter {
     // pieces overlap them the way they would in a real projection.
     final into = axisIntoScreen(axes.horizontal, axes.vertical);
     entries.sort((a, b) {
-      final byDepth = placementSpan(b.placement!, into).offset.compareTo(
-        placementSpan(a.placement!, into).offset,
-      );
+      final byDepth = placementSpan(
+        b.placement!,
+        into,
+      ).offset.compareTo(placementSpan(a.placement!, into).offset);
       if (byDepth != 0) return byDepth;
       return a.id.compareTo(b.id);
     });
@@ -386,9 +386,8 @@ class ContainerViewPainter extends CustomPainter {
       Paint()
         ..color = borderColor
         ..style = PaintingStyle.stroke
-        ..strokeWidth = entryIssues.isNotEmpty || hasHiddenConflict || isSelected
-            ? 2.5
-            : 1,
+        ..strokeWidth =
+            entryIssues.isNotEmpty || hasHiddenConflict || isSelected ? 2.5 : 1,
     );
 
     _paintLabel(canvas, rect, entry.item);
@@ -513,129 +512,155 @@ class _ContainerViewState extends State<ContainerView> {
         ? null
         : widget.plan.packed.where((e) => e.id == selectedId).firstOrNull;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          height: kViewLabelHeight,
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${widget.axis.label} · '
-                  '${unit.format(containerExtent(widget.plan, axes.horizontal))}'
-                  ' × '
-                  '${unit.formatWithSymbol(containerExtent(widget.plan, axes.vertical))}'
-                  '  (${axes.horizontal.axisLetter} · ${axes.horizontal.label}'
-                  '  ×  ${axes.vertical.axisLetter} · ${axes.vertical.label})',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (widget.onSwapAxes != null)
-                IconButton(
-                  tooltip: 'Lay the ${widget.axis.label.toLowerCase()} view '
-                      'on its side',
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 28,
-                  ),
-                  iconSize: 18,
-                  isSelected: widget.swapped,
-                  icon: const Icon(Icons.swap_horiz),
-                  onPressed: widget.onSwapAxes,
-                ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final size = Size(constraints.maxWidth, constraints.maxHeight);
-              final painter = ContainerViewPainter(
-                plan: widget.plan,
-                axis: widget.axis,
-                issues: widget.issues,
-                selectedEntryId: widget.selectedEntryId,
-                textDirection: Directionality.of(context),
-                outlineColor: theme.colorScheme.onSurface,
-                labelColor: Colors.black.withValues(alpha: 0.8),
-                emptyColor: theme.colorScheme.surfaceContainerHighest,
-                toleranceColor: theme.colorScheme.outlineVariant,
-                hiddenConflictColor: theme.colorScheme.tertiary,
-                fixedScale: widget.fixedScale,
-                swapped: widget.swapped,
-              );
+    return LayoutBuilder(
+      builder: (context, outerConstraints) {
+        // Clamped to whatever height this view actually got, rather than
+        // always the full kViewLabelHeight - a squeezed panel (e.g. 4 views
+        // stacked on a short screen) shrinks the label first instead of
+        // overflowing the Column that holds it.
+        final labelHeight = outerConstraints.maxHeight.isFinite
+            ? math.min(kViewLabelHeight, outerConstraints.maxHeight)
+            : kViewLabelHeight;
 
-              final board = GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTapUp: (details) => widget.onSelected(
-                  painter.entryAt(details.localPosition, size),
-                ),
-                onPanStart: (details) {
-                  final entryId = painter.entryAt(details.localPosition, size);
-                  _draggingEntryId = entryId;
-                  if (entryId != null) widget.onSelected(entryId);
-                },
-                onPanUpdate: (details) {
-                  final entryId = _draggingEntryId;
-                  if (entryId == null) return;
-                  final geometry = painter.geometryFor(size);
-                  widget.onDragged(entryId, geometry.deltaToPlan(details.delta));
-                },
-                onPanEnd: (_) {
-                  if (_draggingEntryId != null) widget.onDragEnded();
-                  _draggingEntryId = null;
-                },
-                onPanCancel: () {
-                  if (_draggingEntryId != null) widget.onDragEnded();
-                  _draggingEntryId = null;
-                },
-                child: CustomPaint(size: size, painter: painter),
-              );
-
-              if (selected == null) return board;
-
-              // Anchored to the container's own top-right rather than the
-              // view's, so it stays attached to the shape instead of floating
-              // in whatever empty space the aspect ratio leaves over.
-              const buttonSize = 36.0;
-              final frame = painter.geometryFor(size).boardRect;
-
-              // The turn button sits in the view it turns things in, so there
-              // is never a question of which way round "turn" means. It goes
-              // over the diagram rather than in the header, where it would
-              // squeeze the dimensions out of the side view's label.
-              return Stack(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: labelHeight,
+              child: Row(
                 children: [
-                  Positioned.fill(child: board),
-                  Positioned(
-                    top: math.max(frame.top - 6, 0),
-                    left: math.max(frame.right - buttonSize + 6, 0),
-                    child: Material(
-                      color: theme.colorScheme.surface.withValues(alpha: 0.85),
-                      shape: const CircleBorder(),
-                      clipBehavior: Clip.antiAlias,
-                      child: IconButton(
-                        tooltip: 'Turn ${selected.item.name}',
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 18,
-                        icon: const Icon(Icons.rotate_90_degrees_cw_outlined),
-                        onPressed: () => widget.onRotate(selected.id),
+                  Expanded(
+                    child: Text(
+                      '${widget.axis.label} · '
+                      '${unit.format(containerExtent(widget.plan, axes.horizontal))}'
+                      ' × '
+                      '${unit.formatWithSymbol(containerExtent(widget.plan, axes.vertical))}'
+                      '  (${axes.horizontal.axisLetter} · ${axes.horizontal.label}'
+                      '  ×  ${axes.vertical.axisLetter} · ${axes.vertical.label})',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  if (widget.onSwapAxes != null)
+                    IconButton(
+                      tooltip:
+                          'Lay the ${widget.axis.label.toLowerCase()} view '
+                          'on its side',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 28,
+                      ),
+                      iconSize: 18,
+                      isSelected: widget.swapped,
+                      icon: const Icon(Icons.swap_horiz),
+                      onPressed: widget.onSwapAxes,
+                    ),
                 ],
-              );
-            },
-          ),
-        ),
-      ],
+              ),
+            ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final size = Size(
+                    constraints.maxWidth,
+                    constraints.maxHeight,
+                  );
+                  final painter = ContainerViewPainter(
+                    plan: widget.plan,
+                    axis: widget.axis,
+                    issues: widget.issues,
+                    selectedEntryId: widget.selectedEntryId,
+                    textDirection: Directionality.of(context),
+                    outlineColor: theme.colorScheme.onSurface,
+                    labelColor: Colors.black.withValues(alpha: 0.8),
+                    emptyColor: theme.colorScheme.surfaceContainerHighest,
+                    toleranceColor: theme.colorScheme.outlineVariant,
+                    hiddenConflictColor: theme.colorScheme.tertiary,
+                    fixedScale: widget.fixedScale,
+                    swapped: widget.swapped,
+                  );
+
+                  final board = GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapUp: (details) => widget.onSelected(
+                      painter.entryAt(details.localPosition, size),
+                    ),
+                    onPanStart: (details) {
+                      final entryId = painter.entryAt(
+                        details.localPosition,
+                        size,
+                      );
+                      _draggingEntryId = entryId;
+                      if (entryId != null) widget.onSelected(entryId);
+                    },
+                    onPanUpdate: (details) {
+                      final entryId = _draggingEntryId;
+                      if (entryId == null) return;
+                      final geometry = painter.geometryFor(size);
+                      widget.onDragged(
+                        entryId,
+                        geometry.deltaToPlan(details.delta),
+                      );
+                    },
+                    onPanEnd: (_) {
+                      if (_draggingEntryId != null) widget.onDragEnded();
+                      _draggingEntryId = null;
+                    },
+                    onPanCancel: () {
+                      if (_draggingEntryId != null) widget.onDragEnded();
+                      _draggingEntryId = null;
+                    },
+                    child: CustomPaint(size: size, painter: painter),
+                  );
+
+                  if (selected == null) return board;
+
+                  // Anchored to the container's own top-right rather than the
+                  // view's, so it stays attached to the shape instead of floating
+                  // in whatever empty space the aspect ratio leaves over.
+                  const buttonSize = 36.0;
+                  final frame = painter.geometryFor(size).boardRect;
+
+                  // The turn button sits in the view it turns things in, so there
+                  // is never a question of which way round "turn" means. It goes
+                  // over the diagram rather than in the header, where it would
+                  // squeeze the dimensions out of the side view's label.
+                  return Stack(
+                    children: [
+                      Positioned.fill(child: board),
+                      Positioned(
+                        top: math.max(frame.top - 6, 0),
+                        left: math.max(frame.right - buttonSize + 6, 0),
+                        child: Material(
+                          color: theme.colorScheme.surface.withValues(
+                            alpha: 0.85,
+                          ),
+                          shape: const CircleBorder(),
+                          clipBehavior: Clip.antiAlias,
+                          child: IconButton(
+                            tooltip: 'Turn ${selected.item.name}',
+                            visualDensity: VisualDensity.compact,
+                            iconSize: 18,
+                            icon: const Icon(
+                              Icons.rotate_90_degrees_cw_outlined,
+                            ),
+                            onPressed: () => widget.onRotate(selected.id),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -648,9 +673,7 @@ class UnitScope extends InheritedWidget {
   final MeasurementUnit unit;
 
   static MeasurementUnit of(BuildContext context) =>
-      context
-          .dependOnInheritedWidgetOfExactType<UnitScope>()
-          ?.unit ??
+      context.dependOnInheritedWidgetOfExactType<UnitScope>()?.unit ??
       MeasurementUnit.centimetres;
 
   @override
@@ -667,11 +690,18 @@ const double kViewPadding = 6.0;
 /// Space between the front and side views.
 const double kViewGap = 12.0;
 
-/// Height reserved for the Front/Top/Side show/hide chip row above the
+/// Height reserved for the Front/Top/Side/3D show/hide chip row above the
 /// stacked views. A `FilterChip` row is roughly [kViewLabelHeight]'s size;
 /// named separately since it is conceptually a different piece of chrome,
 /// even though the number happens to match today.
 const double kVisibilityToolbarHeight = kViewLabelHeight;
+
+/// Height reserved for the 3D preview panel when it's stacked in alongside
+/// the orthographic views. Unlike those, it doesn't share their linear
+/// width/height/depth scale (an orbit camera doesn't have a single flat
+/// "extent" the way a 2D projection does), so it gets a fixed, reasonable
+/// size instead of participating in [sharedScaleFor]'s fit-to-box math.
+const double kPreview3DHeight = 260.0;
 
 /// The pixels-per-centimetre a stack of views should all be drawn at.
 ///
@@ -700,7 +730,8 @@ double sharedScaleFor(
   if (!availableHeight.isFinite) return byWidth;
 
   // Each view carries its own label and padding.
-  final chrome = views.length * (kViewLabelHeight + kViewPadding * 2) +
+  final chrome =
+      views.length * (kViewLabelHeight + kViewPadding * 2) +
       kViewGap * (views.length - 1);
   final usableHeight = math.max(availableHeight - chrome, 1.0);
   return math.min(byWidth, usableHeight / totalHeight);

@@ -27,12 +27,6 @@ class PlanDetailScreen extends StatefulWidget {
 class _PlanDetailScreenState extends State<PlanDetailScreen> {
   String? _selectedEntryId;
 
-  // Which way the diagram area is showing the plan - not persisted, since
-  // it's a way of looking at the plan rather than a fact about it (unlike
-  // hiddenViews/swappedViews, which describe the orthographic views
-  // themselves and matter again next time the plan is opened).
-  bool _show3D = false;
-
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -121,47 +115,35 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                       horizontalPadding,
                       0,
                     ),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment(
-                            value: false,
-                            label: Text('Views'),
-                            icon: Icon(Icons.dashboard_outlined),
-                          ),
-                          ButtonSegment(
-                            value: true,
-                            label: Text('3D'),
-                            icon: Icon(Icons.view_in_ar_outlined),
-                          ),
-                        ],
-                        selected: {_show3D},
-                        onSelectionChanged: (selection) =>
-                            setState(() => _show3D = selection.first),
-                      ),
+                    // Left out of diagramHeight's budget deliberately - a
+                    // Wrap of four chips can wrap to two lines on a narrow
+                    // screen, and a fixed height budget for it either
+                    // overflows (too small) or wastes space on every wider
+                    // screen (too generous "just in case"). Natural flow
+                    // sidesteps guessing its height at all.
+                    child: _ViewVisibilityToolbar(
+                      plan: plan,
+                      store: widget.store,
                     ),
                   ),
                 Padding(
-                  padding: EdgeInsets.fromLTRB(
+                  padding: const EdgeInsets.fromLTRB(
                     horizontalPadding,
-                    plan.isThreeDimensional ? 8 : 12,
+                    12,
                     horizontalPadding,
                     4,
                   ),
                   child: SizedBox(
                     height: diagramHeight,
-                    child: plan.isThreeDimensional && _show3D
-                        ? Preview3D(plan: plan)
-                        : _Diagram(
-                            plan: plan,
-                            issues: issues,
-                            selectedEntryId: _selectedEntryId,
-                            onSelected: (entryId) =>
-                                setState(() => _selectedEntryId = entryId),
-                            onRotate: _rotate,
-                            store: widget.store,
-                          ),
+                    child: _Diagram(
+                      plan: plan,
+                      issues: issues,
+                      selectedEntryId: _selectedEntryId,
+                      onSelected: (entryId) =>
+                          setState(() => _selectedEntryId = entryId),
+                      onRotate: _rotate,
+                      store: widget.store,
+                    ),
                   ),
                 ),
                 if (plan.packed.isNotEmpty)
@@ -245,10 +227,15 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
       availableHeight: double.infinity,
     );
 
-    // The show/hide chip row sits above the stacked views regardless of how
-    // many of them are visible.
-    var total = kVisibilityToolbarHeight + kViewGap;
-    if (views.isNotEmpty) total += kViewGap * (views.length - 1);
+    final show3D = !plan.hiddenViews.contains('3d');
+    final panelCount = views.length + (show3D ? 1 : 0);
+
+    // The show/hide toolbar itself is rendered outside this budget (see
+    // its call site) - a Wrap of four chips can wrap to two lines on a
+    // narrow screen, and there's no fixed height that's both safe and not
+    // wasteful across every screen width.
+    var total = 0.0;
+    if (panelCount > 0) total += kViewGap * (panelCount - 1);
     for (final entry in views) {
       final axes = axesFor(entry.view, swapped: entry.swapped);
       total +=
@@ -256,6 +243,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
           kViewPadding * 2 +
           kViewLabelHeight;
     }
+    if (show3D) total += kPreview3DHeight;
     return total;
   }
 
@@ -473,39 +461,11 @@ class _Diagram extends StatelessWidget {
       issues: issues,
       selectedEntryId: selectedEntryId,
       onSelected: onSelected,
-      onDragged: (entryId, delta) =>
-          _onDragged(axis, swapped, entryId, delta),
+      onDragged: (entryId, delta) => _onDragged(axis, swapped, entryId, delta),
       onDragEnded: store.flush,
       onRotate: (entryId) => onRotate(axis, swapped, entryId),
       onSwapAxes: () => store.toggleViewSwap(plan.id, axis.name),
       fixedScale: fixedScale,
-    );
-  }
-
-  /// Front/Top/Side toggle chips. A chip for the last remaining visible view
-  /// disables itself — hiding it would leave nothing on screen to pack by —
-  /// rather than allowing the tap and silently doing nothing.
-  Widget _visibilityToolbar() {
-    final visible = <ViewAxis>{
-      for (final view in const [ViewAxis.front, ViewAxis.top, ViewAxis.side])
-        if (!plan.hiddenViews.contains(view.name)) view,
-    };
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: kViewGap),
-      child: Wrap(
-        spacing: 8,
-        children: [
-          for (final view in const [ViewAxis.front, ViewAxis.top, ViewAxis.side])
-            FilterChip(
-              label: Text(view.label),
-              selected: visible.contains(view),
-              onSelected: visible.length == 1 && visible.contains(view)
-                  ? null
-                  : (_) => store.toggleViewVisibility(plan.id, view.name),
-            ),
-        ],
-      ),
     );
   }
 
@@ -514,54 +474,115 @@ class _Diagram extends StatelessWidget {
     if (!plan.isThreeDimensional) return _view(ViewAxis.front);
 
     final views = viewsFor(plan);
+    final show3D = !plan.hiddenViews.contains('3d');
 
-    // Every view has to share one scale, or the same container reads as a
-    // different size in each and nothing on screen is comparable.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    if (views.isEmpty && !show3D) return const Text('No views selected.');
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The 3D panel takes a fixed slice of the available height (it
+        // doesn't share the orthographic views' linear scale - see
+        // kPreview3DHeight) - the 2D views only get to fit themselves into
+        // whatever's left.
+        final reservedFor3D = show3D
+            ? kPreview3DHeight + (views.isNotEmpty ? kViewGap : 0)
+            : 0.0;
+        final scale = sharedScaleFor(
+          plan,
+          views,
+          availableWidth: constraints.maxWidth,
+          availableHeight: constraints.maxHeight - reservedFor3D,
+        );
+
+        // Every panel is Flexible rather than a fixed-height SizedBox, with
+        // a flex weight proportional to its own wanted pixel height - the
+        // ratios between panels come out the same as their wanted sizes
+        // whenever everything fits, but if the total (computed from
+        // _diagramHeightFor) still doesn't fit the height the caller
+        // actually clamped it to, Flutter's flex layout shrinks every
+        // panel proportionally instead of overflowing. A fixed-height
+        // SizedBox for the 3D panel specifically doesn't have this
+        // property, which is what caused a real overflow here before.
+        Widget flexiblePanel(double wantedHeight, Widget child) => Flexible(
+          flex: (wantedHeight * 100).round().clamp(1, 1 << 30),
+          child: child,
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < views.length; i++) ...[
+              if (i > 0) const SizedBox(height: kViewGap),
+              // Full width, so a narrow view's label still has room to
+              // print; the board itself is pinned left inside it.
+              flexiblePanel(
+                containerExtent(
+                          plan,
+                          axesFor(
+                            views[i].view,
+                            swapped: views[i].swapped,
+                          ).vertical,
+                        ) *
+                        scale +
+                    kViewPadding * 2 +
+                    kViewLabelHeight,
+                SizedBox(
+                  width: double.infinity,
+                  child: _view(views[i].view, fixedScale: scale),
+                ),
+              ),
+            ],
+            if (show3D) ...[
+              if (views.isNotEmpty) const SizedBox(height: kViewGap),
+              flexiblePanel(
+                kPreview3DHeight,
+                SizedBox(
+                  width: double.infinity,
+                  child: Preview3D(plan: plan),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Front/Top/Side/3D toggle chips, stacked together as up to four panels.
+/// A chip for the last remaining visible panel disables itself — hiding it
+/// would leave nothing on screen to pack by — rather than allowing the tap
+/// and silently doing nothing.
+class _ViewVisibilityToolbar extends StatelessWidget {
+  const _ViewVisibilityToolbar({required this.plan, required this.store});
+
+  final Plan plan;
+  final GearStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleNames = <String>{
+      for (final view in const [ViewAxis.front, ViewAxis.top, ViewAxis.side])
+        if (!plan.hiddenViews.contains(view.name)) view.name,
+      if (!plan.hiddenViews.contains('3d')) '3d',
+    };
+
+    Widget chip(String name, String label) => FilterChip(
+      label: Text(label),
+      selected: visibleNames.contains(name),
+      onSelected: visibleNames.length == 1 && visibleNames.contains(name)
+          ? null
+          : (_) => store.toggleViewVisibility(plan.id, name),
+    );
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        _visibilityToolbar(),
-        if (views.isEmpty)
-          const Text('No views selected.')
-        else
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final scale = sharedScaleFor(
-                  plan,
-                  views,
-                  availableWidth: constraints.maxWidth,
-                  availableHeight: constraints.maxHeight,
-                );
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (var i = 0; i < views.length; i++) ...[
-                      if (i > 0) const SizedBox(height: kViewGap),
-                      // Full width, so a narrow view's label still has room to
-                      // print; the board itself is pinned left inside it.
-                      SizedBox(
-                        width: double.infinity,
-                        height:
-                            containerExtent(
-                              plan,
-                              axesFor(
-                                views[i].view,
-                                swapped: views[i].swapped,
-                              ).vertical,
-                            ) *
-                                scale +
-                            kViewPadding * 2 +
-                            kViewLabelHeight,
-                        child: _view(views[i].view, fixedScale: scale),
-                      ),
-                    ],
-                  ],
-                );
-              },
-            ),
-          ),
+        chip(ViewAxis.front.name, ViewAxis.front.label),
+        chip(ViewAxis.top.name, ViewAxis.top.label),
+        chip(ViewAxis.side.name, ViewAxis.side.label),
+        chip('3d', '3D'),
       ],
     );
   }

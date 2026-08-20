@@ -34,6 +34,7 @@ ContainerViewPainter painterFor(Plan plan, ViewAxis axis) =>
       labelColor: const Color(0xFF000000),
       emptyColor: const Color(0xFFEEEEEE),
       toleranceColor: const Color(0xFFCCCCCC),
+      hiddenConflictColor: const Color(0xFFF59E0B),
     );
 
 void main() {
@@ -184,6 +185,65 @@ void main() {
         offset: 7.0,
         size: 2.0,
       ));
+    });
+  });
+
+  group('hiddenAxisConflicts', () {
+    // Same width and depth span, stacked apart in height only - not a real
+    // 3D collision (height doesn't overlap), but Top view (width × depth)
+    // can't tell them apart, while Side view (depth × height) correctly
+    // shows them separated. This is exactly the "looks right in one view,
+    // wrong in the other" report: no view but this one can move either
+    // piece far enough apart in width or depth to actually fix it.
+    final stackedInHeight = [
+      placementAt(entryId: 'a', x: 0, y: 0, z: 0, width: 10, height: 10, depth: 10),
+      placementAt(entryId: 'b', x: 0, y: 15, z: 0, width: 10, height: 10, depth: 10),
+    ];
+
+    test('flags a pair sharing this view\'s axes even without a real 3D overlap', () {
+      final conflicts = hiddenAxisConflicts(
+        stackedInHeight,
+        PlanAxis.width,
+        PlanAxis.depth,
+        const {},
+      );
+      expect(conflicts, {'a', 'b'});
+    });
+
+    test('does not flag the view whose axes actually show them apart', () {
+      final conflicts = hiddenAxisConflicts(
+        stackedInHeight,
+        PlanAxis.depth,
+        PlanAxis.height,
+        const {},
+      );
+      expect(conflicts, isEmpty);
+    });
+
+    test('does not flag pieces that are actually separated on this view\'s own axes', () {
+      final apart = [
+        placementAt(entryId: 'a', x: 0, y: 0, z: 0, width: 10, height: 10, depth: 10),
+        placementAt(entryId: 'b', x: 20, y: 0, z: 0, width: 10, height: 10, depth: 10),
+      ];
+      expect(
+        hiddenAxisConflicts(apart, PlanAxis.width, PlanAxis.depth, const {}),
+        isEmpty,
+      );
+    });
+
+    test('defers to a real overlap instead of double-flagging it', () {
+      final trulyOverlapping = [
+        placementAt(entryId: 'a', x: 0, y: 0, z: 0, width: 10, height: 10, depth: 10),
+        placementAt(entryId: 'b', x: 5, y: 5, z: 5, width: 10, height: 10, depth: 10),
+      ];
+      final issues = {
+        'a': {PlacementIssue.overlapping},
+        'b': {PlacementIssue.overlapping},
+      };
+      expect(
+        hiddenAxisConflicts(trulyOverlapping, PlanAxis.width, PlanAxis.depth, issues),
+        isEmpty,
+      );
     });
   });
 

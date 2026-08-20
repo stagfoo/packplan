@@ -86,6 +86,59 @@ double containerExtent(Plan plan, PlanAxis axis) => switch (axis) {
       PlanAxis.depth => (offset: placement.z, size: placement.depth),
     };
 
+bool _spansOverlap(Placement a, Placement b, PlanAxis axis) {
+  final spanA = placementSpan(a, axis);
+  final spanB = placementSpan(b, axis);
+  return spanA.offset < spanB.offset + spanB.size &&
+      spanB.offset < spanA.offset + spanA.size;
+}
+
+/// Entries that look clear of another piece in a view showing [horizontal]
+/// and [vertical], but only because they are apart on the one axis that
+/// view does not draw.
+///
+/// [Placement.overlaps] needs all three axes to agree before it calls
+/// something a real collision — rightly, since two pieces stacked apart in
+/// height are not actually touching. But a view's own 2D projection drops
+/// whichever axis is running into the screen, so two pieces that share
+/// their span on *both* axes a view shows will draw as one rectangle
+/// sitting on the other there, even while a real 3D overlap check clears
+/// them. Dragging one "clear" inside that view can never fix that — the
+/// axis that actually separates them is only reachable from the other
+/// view. Flagged separately from [PlacementIssue.overlapping] (which stays
+/// reserved for genuine collisions) so the two don't read as the same
+/// problem.
+Set<String> hiddenAxisConflicts(
+  List<Placement> placements,
+  PlanAxis horizontal,
+  PlanAxis vertical,
+  Map<String, Set<PlacementIssue>> issues,
+) {
+  final conflicts = <String>{};
+
+  bool trulyOverlapping(String entryId) =>
+      (issues[entryId] ?? const <PlacementIssue>{}).contains(
+        PlacementIssue.overlapping,
+      );
+
+  for (var i = 0; i < placements.length; i++) {
+    final a = placements[i];
+    if (trulyOverlapping(a.entryId)) continue;
+
+    for (var j = i + 1; j < placements.length; j++) {
+      final b = placements[j];
+      if (trulyOverlapping(b.entryId)) continue;
+
+      if (_spansOverlap(a, b, horizontal) && _spansOverlap(a, b, vertical)) {
+        conflicts.add(a.entryId);
+        conflicts.add(b.entryId);
+      }
+    }
+  }
+
+  return conflicts;
+}
+
 /// Maps between plan centimetres and canvas pixels for one view.
 ///
 /// The vertical axis is flipped only when it is the container's height, so a
@@ -168,6 +221,7 @@ class ContainerViewPainter extends CustomPainter {
     required this.labelColor,
     required this.emptyColor,
     required this.toleranceColor,
+    required this.hiddenConflictColor,
     this.fixedScale,
     this.swapped = false,
   });
@@ -181,6 +235,11 @@ class ContainerViewPainter extends CustomPainter {
   final Color labelColor;
   final Color emptyColor;
   final Color toleranceColor;
+
+  /// Border colour for gear that only looks clear of another piece in this
+  /// view because they are apart on the one axis this view does not draw —
+  /// see [_hiddenAxisConflicts].
+  final Color hiddenConflictColor;
 
   /// Set when this view is drawn with others and they must agree.
   final double? fixedScale;
@@ -213,8 +272,14 @@ class ContainerViewPainter extends CustomPainter {
     canvas.drawRRect(boardRadius, Paint()..color = emptyColor);
     _paintToleranceMargin(canvas, geometry);
 
+    final hiddenConflicts = hiddenAxisConflicts(
+      plan.packed.map((entry) => entry.placement!).toList(),
+      axes.horizontal,
+      axes.vertical,
+      issues,
+    );
     for (final entry in _drawOrder()) {
-      _paintGear(canvas, geometry, entry);
+      _paintGear(canvas, geometry, entry, hiddenConflicts);
     }
 
     // The container outline goes on top so gear dragged past the edge reads as
@@ -279,7 +344,12 @@ class ContainerViewPainter extends CustomPainter {
     return entries;
   }
 
-  void _paintGear(Canvas canvas, ViewGeometry geometry, PlanEntry entry) {
+  void _paintGear(
+    Canvas canvas,
+    ViewGeometry geometry,
+    PlanEntry entry,
+    Set<String> hiddenConflicts,
+  ) {
     final placement = entry.placement!;
     final across = placementSpan(placement, axes.horizontal);
     final down = placementSpan(placement, axes.vertical);
@@ -293,6 +363,8 @@ class ContainerViewPainter extends CustomPainter {
 
     final entryIssues = issues[entry.id] ?? const <PlacementIssue>{};
     final isSelected = entry.id == selectedEntryId;
+    final hasHiddenConflict =
+        entryIssues.isEmpty && hiddenConflicts.contains(entry.id);
 
     canvas.drawRRect(
       rounded,
@@ -302,13 +374,17 @@ class ContainerViewPainter extends CustomPainter {
 
     final borderColor = entryIssues.isNotEmpty
         ? const Color(0xFFDC2626)
+        : hasHiddenConflict
+        ? hiddenConflictColor
         : (isSelected ? outlineColor : entry.item.color);
     canvas.drawRRect(
       rounded,
       Paint()
         ..color = borderColor
         ..style = PaintingStyle.stroke
-        ..strokeWidth = entryIssues.isNotEmpty || isSelected ? 2.5 : 1,
+        ..strokeWidth = entryIssues.isNotEmpty || hasHiddenConflict || isSelected
+            ? 2.5
+            : 1,
     );
 
     _paintLabel(canvas, rect, entry.item);
@@ -486,6 +562,7 @@ class _ContainerViewState extends State<ContainerView> {
                 labelColor: Colors.black.withValues(alpha: 0.8),
                 emptyColor: theme.colorScheme.surfaceContainerHighest,
                 toleranceColor: theme.colorScheme.outlineVariant,
+                hiddenConflictColor: theme.colorScheme.tertiary,
                 fixedScale: widget.fixedScale,
                 swapped: widget.swapped,
               );

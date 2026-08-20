@@ -189,6 +189,23 @@ void main() {
       expect(containerExtent(samplePlan(), PlanAxis.depth), 1);
     });
 
+    test(
+      'packingExtent adds height overflow to height, leaves other axes alone',
+      () {
+        final plan = withHeightOverflow(samplePlan(depth: 20), 15);
+
+        expect(packingExtent(plan, PlanAxis.height), 55);
+        expect(packingExtent(plan, PlanAxis.width), 30);
+        expect(packingExtent(plan, PlanAxis.depth), 20);
+      },
+    );
+
+    test('packingExtent matches containerExtent with no overflow', () {
+      final plan = samplePlan();
+
+      expect(packingExtent(plan, PlanAxis.height), 40);
+    });
+
     test('a placement spans the axis asked for', () {
       final placement = placementAt(
         entryId: 'a',

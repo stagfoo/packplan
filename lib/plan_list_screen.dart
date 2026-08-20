@@ -102,6 +102,7 @@ class PlanListScreen extends StatelessWidget {
       containerItemId: draft.containerItemId,
       name: draft.name,
       tolerance: draft.tolerance,
+      heightOverflow: draft.heightOverflow,
     );
 
     if (plan == null || !context.mounted) return;
@@ -236,11 +237,7 @@ class _LoadFailed extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 56,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.error_outline, size: 56, color: theme.colorScheme.error),
             const SizedBox(height: 16),
             Text(
               "Couldn't load your gear",

@@ -239,7 +239,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
     for (final entry in views) {
       final axes = axesFor(entry.view, swapped: entry.swapped);
       total +=
-          containerExtent(plan, axes.vertical) * scale +
+          packingExtent(plan, axes.vertical) * scale +
           kViewPadding * 2 +
           kViewLabelHeight;
     }
@@ -296,6 +296,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
       name: draft.name,
       containerItemId: draft.containerItemId,
       tolerance: draft.tolerance,
+      heightOverflow: draft.heightOverflow,
     );
   }
 
@@ -516,7 +517,7 @@ class _Diagram extends StatelessWidget {
               // Full width, so a narrow view's label still has room to
               // print; the board itself is pinned left inside it.
               flexiblePanel(
-                containerExtent(
+                packingExtent(
                           plan,
                           axesFor(
                             views[i].view,

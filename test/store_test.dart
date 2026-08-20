@@ -31,7 +31,11 @@ void main() {
 
   /// A container in the library plus a plan built around it — what used to be
   /// a single "container" is now those two things.
-  Future<PlanRecord> makePack({double? depth, double? tolerance}) async {
+  Future<PlanRecord> makePack({
+    double? depth,
+    double? tolerance,
+    double heightOverflow = 0,
+  }) async {
     final bag = await store.addItem(
       name: 'daypack',
       width: 30,
@@ -43,6 +47,7 @@ void main() {
       containerItemId: bag.id,
       name: 'daypack',
       tolerance: tolerance,
+      heightOverflow: heightOverflow,
     ))!;
   }
 
@@ -279,6 +284,31 @@ void main() {
       expect(store.planFor(pack.id)!.unpacked, hasLength(1));
     });
 
+    test('changing the height overflow does not re-pack', () async {
+      final pack = await makePack();
+      final mug = await makeMug();
+      await store.addGear(pack.id, mug.id);
+      final entryId = store.planFor(pack.id)!.entries.single.id;
+      store.moveGear(pack.id, entryId, dx: 5, dy: 5);
+      await store.flush();
+      final beforeChange = store.planFor(pack.id)!.entries.single.placement!;
+
+      // A change that only relaxes how high gear may be dragged should never
+      // undo a manual layout the way a real reshape (tolerance, container)
+      // does.
+      await store.updatePlan(
+        pack.id,
+        name: 'daypack',
+        tolerance: 0,
+        heightOverflow: 10,
+      );
+
+      final placement = store.planFor(pack.id)!.entries.single.placement!;
+      expect(placement.x, beforeChange.x);
+      expect(placement.y, beforeChange.y);
+      expect(store.planRecordById(pack.id)!.heightOverflow, 10);
+    });
+
     test('new plans inherit the default tolerance', () async {
       await store.setDefaultTolerance(1.5);
       final bag = await store.addItem(
@@ -313,6 +343,14 @@ void main() {
       await store.setDefaultTolerance(2);
 
       expect(store.planRecordById(pack.id)!.tolerance, 0);
+    });
+
+    test('duplicating copies the height overflow', () async {
+      final pack = await makePack(heightOverflow: 12);
+
+      final copy = await store.duplicatePlan(pack.id);
+
+      expect(store.planRecordById(copy!.id)!.heightOverflow, 12);
     });
 
     test('duplicating copies the gear and the layout', () async {
@@ -489,6 +527,47 @@ void main() {
 
       expect(store.planFor(pack.id)!.entries.single.placement!.z, 8);
     });
+
+    test(
+      'a plan with height overflow allows gear above the real height',
+      () async {
+        final pack = await makePack(heightOverflow: 15);
+        final mug = await makeMug();
+        await store.addGear(pack.id, mug.id);
+        final entryId = store.planFor(pack.id)!.entries.single.id;
+
+        store.moveGear(pack.id, entryId, dy: 500);
+
+        // The mug is 9 tall; the container is 40 tall with 15 of overflow.
+        final placement = store.planFor(pack.id)!.entries.single.placement!;
+        expect(placement.bottom, 55);
+      },
+    );
+
+    test('height overflow still has a ceiling', () async {
+      final pack = await makePack(heightOverflow: 15);
+      final mug = await makeMug();
+      await store.addGear(pack.id, mug.id);
+      final entryId = store.planFor(pack.id)!.entries.single.id;
+
+      store.moveGear(pack.id, entryId, dy: 5000);
+
+      final placement = store.planFor(pack.id)!.entries.single.placement!;
+      expect(placement.bottom, 55);
+      store.moveGear(pack.id, entryId, dy: 1);
+      expect(store.planFor(pack.id)!.entries.single.placement!.bottom, 55);
+    });
+
+    test('a plan with no height overflow behaves as before', () async {
+      final pack = await makePack();
+      final mug = await makeMug();
+      await store.addGear(pack.id, mug.id);
+      final entryId = store.planFor(pack.id)!.entries.single.id;
+
+      store.moveGear(pack.id, entryId, dy: 500);
+
+      expect(store.planFor(pack.id)!.entries.single.placement!.bottom, 40);
+    });
   });
 
   group('auto-pack', () {
@@ -555,7 +634,7 @@ void main() {
 
   group('persistence', () {
     test('everything survives a reload', () async {
-      final pack = await makePack(depth: 20, tolerance: 1);
+      final pack = await makePack(depth: 20, tolerance: 1, heightOverflow: 6);
       final pot = await store.addItem(
         name: 'pot',
         width: 10,
@@ -578,6 +657,7 @@ void main() {
       final record = reloaded.planRecordById(pack.id)!;
       expect(reloaded.planFor(pack.id)!.container.depth, 20);
       expect(record.tolerance, 1);
+      expect(record.heightOverflow, 6);
 
       final plan = reloaded.planFor(pack.id)!;
       expect(plan.packed, hasLength(1));

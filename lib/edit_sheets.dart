@@ -84,17 +84,20 @@ class GearItemDraft {
   final bool isContainer;
 }
 
-/// What the plan sheet hands back. [tolerance] is in centimetres.
+/// What the plan sheet hands back. [tolerance] and [heightOverflow] are in
+/// centimetres.
 class PlanDraft {
   const PlanDraft({
     required this.name,
     required this.containerItemId,
     this.tolerance = 0,
+    this.heightOverflow = 0,
   });
 
   final String name;
   final String containerItemId;
   final double tolerance;
+  final double heightOverflow;
 }
 
 class _SheetShell extends StatelessWidget {
@@ -367,11 +370,7 @@ Future<GearItemDraft?> showGearItemSheet(
 /// What the custom-unit sheet hands back. [centimetres] is null for a unit
 /// derived from gear, whose length comes from that gear instead.
 class CustomUnitDraft {
-  const CustomUnitDraft({
-    required this.name,
-    this.centimetres,
-    this.axis,
-  });
+  const CustomUnitDraft({required this.name, this.centimetres, this.axis});
 
   final String name;
   final double? centimetres;
@@ -656,9 +655,9 @@ class _LengthDialogState extends State<_LengthDialog> {
     }
 
     final centimetres = widget.unit.parseToCentimetres(text);
-    Navigator.of(context).pop(
-      centimetres == null || centimetres < 0 ? null : centimetres,
-    );
+    Navigator.of(
+      context,
+    ).pop(centimetres == null || centimetres < 0 ? null : centimetres);
   }
 
   @override
@@ -694,12 +693,8 @@ Future<double?> showLengthDialog(
 }) {
   return showDialog<double>(
     context: context,
-    builder: (context) => _LengthDialog(
-      title: title,
-      label: label,
-      unit: unit,
-      initial: initial,
-    ),
+    builder: (context) =>
+        _LengthDialog(title: title, label: label, unit: unit, initial: initial),
   );
 }
 
@@ -730,6 +725,7 @@ class _PlanSheetState extends State<PlanSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _name;
   late final TextEditingController _tolerance;
+  late final TextEditingController _heightOverflow;
   String? _containerItemId;
 
   MeasurementUnit get _unit => UnitScope.of(context);
@@ -739,6 +735,7 @@ class _PlanSheetState extends State<PlanSheet> {
     super.initState();
     _name = TextEditingController(text: widget.initial?.name ?? '');
     _tolerance = TextEditingController();
+    _heightOverflow = TextEditingController();
     _containerItemId =
         widget.initial?.containerItemId ??
         (widget.containers.length == 1 ? widget.containers.single.id : null);
@@ -754,12 +751,18 @@ class _PlanSheetState extends State<PlanSheet> {
 
     final tolerance = widget.initial?.tolerance ?? widget.defaultTolerance;
     if (tolerance > 0) _tolerance.text = _unit.format(tolerance);
+
+    final heightOverflow = widget.initial?.heightOverflow ?? 0;
+    if (heightOverflow > 0) {
+      _heightOverflow.text = _unit.format(heightOverflow);
+    }
   }
 
   @override
   void dispose() {
     _name.dispose();
     _tolerance.dispose();
+    _heightOverflow.dispose();
     super.dispose();
   }
 
@@ -770,6 +773,7 @@ class _PlanSheetState extends State<PlanSheet> {
     if (containerItemId == null) return;
 
     final toleranceText = _tolerance.text.trim();
+    final heightOverflowText = _heightOverflow.text.trim();
     Navigator.of(context).pop(
       PlanDraft(
         name: _name.text.trim(),
@@ -777,6 +781,9 @@ class _PlanSheetState extends State<PlanSheet> {
         tolerance: toleranceText.isEmpty
             ? 0
             : _unit.toCentimetres(double.parse(toleranceText)),
+        heightOverflow: heightOverflowText.isEmpty
+            ? 0
+            : _unit.toCentimetres(double.parse(heightOverflowText)),
       ),
     );
   }
@@ -851,6 +858,22 @@ class _PlanSheetState extends State<PlanSheet> {
             Text(
               'Gap kept clear of every wall and between any two pieces of '
               'gear. Leave empty to let things sit flush.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            DimensionField(
+              controller: _heightOverflow,
+              label: 'Open top',
+              hint: '0',
+              validator: _optionalNonNegativeNumber,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'How much higher gear may stick out above the container, for '
+              'one with no lid to bump into. Leave empty to hold gear to '
+              'the container\'s real height.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

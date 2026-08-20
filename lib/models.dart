@@ -266,10 +266,8 @@ class PlanItem {
 
   Map<String, dynamic> toJson() => {'id': id, 'itemId': itemId};
 
-  factory PlanItem.fromJson(Map<String, dynamic> json) => PlanItem(
-    id: json['id'] as String,
-    itemId: json['itemId'] as String,
-  );
+  factory PlanItem.fromJson(Map<String, dynamic> json) =>
+      PlanItem(id: json['id'] as String, itemId: json['itemId'] as String);
 }
 
 /// A plan as stored: one container, plus the gear you want to get into it.
@@ -283,6 +281,7 @@ class PlanRecord {
     required this.name,
     required this.containerItemId,
     this.tolerance = 0,
+    this.heightOverflow = 0,
     this.items = const [],
     this.placements = const {},
     this.swappedViews = const {},
@@ -300,6 +299,16 @@ class PlanRecord {
   /// Zero means gear may sit flush. Lives on the plan rather than the container
   /// because it describes how you are packing this time, not the bag itself.
   final double tolerance;
+
+  /// How far gear may be dragged above the container's true height, for
+  /// containers with no lid to bump into - an open-top wagon or crate.
+  /// Lives on the plan rather than the container for the same reason as
+  /// [tolerance]: it describes how you are packing this time, not a fact
+  /// about the bag. Zero means gear is held to the container's real height,
+  /// same as before this field existed. Auto-pack ignores it - it only
+  /// relaxes the manual drag/issue-checking bounds, never where the packer
+  /// itself chooses to place something.
+  final double heightOverflow;
 
   final List<PlanItem> items;
 
@@ -322,6 +331,7 @@ class PlanRecord {
     String? name,
     String? containerItemId,
     double? tolerance,
+    double? heightOverflow,
     List<PlanItem>? items,
     Map<String, Placement>? placements,
     Set<String>? swappedViews,
@@ -331,6 +341,7 @@ class PlanRecord {
     name: name ?? this.name,
     containerItemId: containerItemId ?? this.containerItemId,
     tolerance: tolerance ?? this.tolerance,
+    heightOverflow: heightOverflow ?? this.heightOverflow,
     items: items ?? this.items,
     placements: placements ?? this.placements,
     swappedViews: swappedViews ?? this.swappedViews,
@@ -342,6 +353,7 @@ class PlanRecord {
     'name': name,
     'containerItemId': containerItemId,
     'tolerance': tolerance,
+    'heightOverflow': heightOverflow,
     'items': items.map((item) => item.toJson()).toList(),
     'placements': placements.map(
       (entryId, placement) => MapEntry(entryId, placement.toJson()),
@@ -357,6 +369,7 @@ class PlanRecord {
       name: json['name'] as String,
       containerItemId: json['containerItemId'] as String,
       tolerance: (json['tolerance'] as num?)?.toDouble() ?? 0,
+      heightOverflow: (json['heightOverflow'] as num?)?.toDouble() ?? 0,
       items: (json['items'] as List<dynamic>? ?? [])
           .map((item) => PlanItem.fromJson(item as Map<String, dynamic>))
           .toList(),
@@ -377,15 +390,19 @@ class PlanRecord {
       hiddenViews: json['hiddenViews'] == null
           ? const {'front', '3d'}
           : (json['hiddenViews'] as List<dynamic>)
-              .map((view) => view as String)
-              .toSet(),
+                .map((view) => view as String)
+                .toSet(),
     );
   }
 }
 
 /// A named set of library items — a kit you pack again and again.
 class Loadout {
-  const Loadout({required this.id, required this.name, this.itemIds = const []});
+  const Loadout({
+    required this.id,
+    required this.name,
+    this.itemIds = const [],
+  });
 
   final String id;
   final String name;
@@ -469,6 +486,7 @@ class Plan {
   String get id => record.id;
   String get name => record.name;
   double get tolerance => record.tolerance;
+  double get heightOverflow => record.heightOverflow;
   Set<String> get swappedViews => record.swappedViews;
   Set<String> get hiddenViews => record.hiddenViews;
 

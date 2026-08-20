@@ -2,7 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import 'diagram.dart' show PlanAxis, containerExtent, kViewLabelHeight;
+import 'diagram.dart'
+    show PlanAxis, containerExtent, kViewLabelHeight, packingExtent;
 import 'models.dart';
 
 /// A point in plan space (centimetres), reusing the same width/height/depth
@@ -168,7 +169,7 @@ class _Preview3DPainter extends CustomPainter {
     );
 
     final w = containerExtent(plan, PlanAxis.width);
-    final h = containerExtent(plan, PlanAxis.height);
+    final h = packingExtent(plan, PlanAxis.height);
     final d = containerExtent(plan, PlanAxis.depth);
     if (w <= 0 || h <= 0 || d <= 0) return;
 

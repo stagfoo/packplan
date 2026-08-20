@@ -27,6 +27,7 @@ Plan planOf({
   required double height,
   double? depth,
   double tolerance = 0,
+  double heightOverflow = 0,
   List<GearItem> items = const [],
   Map<String, Placement> placements = const {},
 }) {
@@ -43,6 +44,7 @@ Plan planOf({
     name: 'plan',
     containerItemId: container.id,
     tolerance: tolerance,
+    heightOverflow: heightOverflow,
     items: items
         .map((item) => PlanItem(id: item.id, itemId: item.id))
         .toList(),
@@ -82,6 +84,13 @@ Plan withPlacements(Plan plan, Map<String, Placement> placements) => Plan(
 /// Rebuilds a plan with the given set of hidden views.
 Plan withHiddenViews(Plan plan, Set<String> hiddenViews) => Plan(
   record: plan.record.copyWith(hiddenViews: hiddenViews),
+  container: plan.container,
+  entries: plan.entries,
+);
+
+/// Rebuilds a plan with the given height overflow.
+Plan withHeightOverflow(Plan plan, double heightOverflow) => Plan(
+  record: plan.record.copyWith(heightOverflow: heightOverflow),
   container: plan.container,
   entries: plan.entries,
 );

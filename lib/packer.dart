@@ -81,17 +81,23 @@ class _Bounds {
 /// the number reads like.
 double wallMarginFor(double tolerance) => tolerance / 2;
 
-_Bounds _boundsFor(Plan plan) {
+/// [includeHeightOverflow] raises the height limit by [Plan.heightOverflow],
+/// for containers with no lid — an open-top wagon or crate. Only
+/// [findPlacementIssues] passes true: auto-pack always targets the
+/// container's real walls, so gear it places on its own never depends on a
+/// human having dragged something up over the rim first.
+_Bounds _boundsFor(Plan plan, {bool includeHeightOverflow = false}) {
   final margin = wallMarginFor(plan.tolerance);
   // A flat plan's depth axis is a fiction, so tolerance must not eat into it.
   final depthMargin = plan.isThreeDimensional ? margin : 0.0;
+  final heightOverflow = includeHeightOverflow ? plan.heightOverflow : 0.0;
 
   return _Bounds(
     originX: margin,
     originY: margin,
     originZ: depthMargin,
     limitX: plan.container.width - margin,
-    limitY: plan.container.height - margin,
+    limitY: plan.container.height + heightOverflow - margin,
     limitZ: plan.workingDepth - depthMargin,
   );
 }
@@ -308,7 +314,7 @@ enum PlacementIssue {
 /// space. Only meaningful after a drag or a settings change — [packPlan] never
 /// produces either.
 Map<String, Set<PlacementIssue>> findPlacementIssues(Plan plan) {
-  final bounds = _boundsFor(plan);
+  final bounds = _boundsFor(plan, includeHeightOverflow: true);
   final clearance = plan.tolerance;
   final issues = <String, Set<PlacementIssue>>{};
   final placements = plan.packed.map((entry) => entry.placement!).toList();

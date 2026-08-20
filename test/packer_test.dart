@@ -513,6 +513,58 @@ void main() {
         contains(PlacementIssue.outOfBounds),
       );
     });
+
+    test('does not flag gear within the height overflow', () {
+      final plan = planOf(
+        width: 30,
+        height: 40,
+        heightOverflow: 15,
+        items: [gear('a', width: 12, height: 10)],
+        // Bottom at 45, top at 55 - past the real 40 cm wall, but inside the
+        // 15 cm of overflow room.
+        placements: {
+          'a': placementAt(entryId: 'a', y: 45, width: 12, height: 10),
+        },
+      );
+
+      expect(findPlacementIssues(plan)['a'], isNull);
+    });
+
+    test('still flags gear past the overflow limit', () {
+      final plan = planOf(
+        width: 30,
+        height: 40,
+        heightOverflow: 15,
+        items: [gear('a', width: 12, height: 10)],
+        placements: {
+          'a': placementAt(entryId: 'a', y: 46, width: 12, height: 10),
+        },
+      );
+
+      expect(
+        findPlacementIssues(plan)['a'],
+        contains(PlacementIssue.outOfBounds),
+      );
+    });
+  });
+
+  group('height overflow', () {
+    test('auto-pack never places gear above the real height', () {
+      // Too tall for the real 15 cm wall in either orientation (20 or 25
+      // cm), but would fit well within the 20 cm of overflow the plan
+      // allows for manual dragging only.
+      final plan = planOf(
+        width: 30,
+        height: 15,
+        heightOverflow: 20,
+        items: [gear('a', width: 25, height: 20)],
+      );
+
+      final result = packPlan(plan);
+
+      expect(result.everythingFits, isFalse);
+      expect(result.unfitted.single.id, 'a');
+    });
   });
 
   group('plan reporting', () {

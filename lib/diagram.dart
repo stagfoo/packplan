@@ -81,6 +81,16 @@ double containerExtent(Plan plan, PlanAxis axis) => switch (axis) {
   PlanAxis.depth => plan.workingDepth,
 };
 
+/// How far a view's canvas needs to reach along [axis] to have room for
+/// gear dragged above the container's real height — [containerExtent] plus
+/// [Plan.heightOverflow] when [axis] is height, unchanged otherwise. Kept
+/// separate from [containerExtent] so labels and dimension text keep
+/// reading the container's actual size, while only the drawing surface
+/// itself grows.
+double packingExtent(Plan plan, PlanAxis axis) =>
+    containerExtent(plan, axis) +
+    (axis == PlanAxis.height ? plan.heightOverflow : 0);
+
 /// Where a placement sits along [axis], and how far it reaches.
 ({double offset, double size}) placementSpan(
   Placement placement,
@@ -257,8 +267,8 @@ class ContainerViewPainter extends CustomPainter {
   bool get _flipVertical => axes.vertical == PlanAxis.height;
 
   ViewGeometry geometryFor(Size size) => ViewGeometry(
-    planWidth: containerExtent(plan, axes.horizontal),
-    planHeight: containerExtent(plan, axes.vertical),
+    planWidth: packingExtent(plan, axes.horizontal),
+    planHeight: packingExtent(plan, axes.vertical),
     size: size,
     fixedScale: fixedScale,
     flipVertical: _flipVertical,
@@ -288,13 +298,67 @@ class ContainerViewPainter extends CustomPainter {
 
     // The container outline goes on top so gear dragged past the edge reads as
     // sticking out rather than quietly covering the frame.
-    canvas.drawRRect(
-      boardRadius,
-      Paint()
-        ..color = plan.container.color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5,
+    _paintOutline(canvas, geometry, board, boardRadius);
+  }
+
+  /// Draws the container's own edge — a plain closed box, unless this view
+  /// shows height with room to overflow above it (an open-top wagon or
+  /// crate), in which case the top edge is left open and the real rim is
+  /// marked with a dashed line instead. Only handled for the vertical axis
+  /// — a swapped view showing height running sideways falls back to a
+  /// normal closed box, since there is no sensible "open side" to draw.
+  void _paintOutline(
+    Canvas canvas,
+    ViewGeometry geometry,
+    Rect board,
+    RRect boardRadius,
+  ) {
+    final wallPaint = Paint()
+      ..color = plan.container.color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+
+    final openTop = plan.heightOverflow > 0 && axes.vertical == PlanAxis.height;
+    if (!openTop) {
+      canvas.drawRRect(boardRadius, wallPaint);
+      return;
+    }
+
+    final rimY = board.top + plan.heightOverflow * geometry.scale;
+    canvas.drawPath(
+      Path()
+        ..moveTo(board.left, rimY)
+        ..lineTo(board.left, board.bottom)
+        ..lineTo(board.right, board.bottom)
+        ..lineTo(board.right, rimY),
+      wallPaint,
     );
+    _paintDashedLine(
+      canvas,
+      Offset(board.left, rimY),
+      Offset(board.right, rimY),
+      wallPaint,
+    );
+  }
+
+  /// Marks the container's real rim within a taller, open-topped board.
+  void _paintDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
+    const dashLength = 5.0;
+    const gapLength = 4.0;
+    final total = (end - start).distance;
+    if (total <= 0) return;
+    final direction = (end - start) / total;
+
+    var travelled = 0.0;
+    while (travelled < total) {
+      final segmentEnd = math.min(travelled + dashLength, total);
+      canvas.drawLine(
+        start + direction * travelled,
+        start + direction * segmentEnd,
+        paint,
+      );
+      travelled = segmentEnd + gapLength;
+    }
   }
 
   /// Marks the strip the tolerance keeps clear, so the gap around the gear
@@ -720,8 +784,8 @@ double sharedScaleFor(
   var totalHeight = 0.0;
   for (final entry in views) {
     final axes = axesFor(entry.view, swapped: entry.swapped);
-    widest = math.max(widest, containerExtent(plan, axes.horizontal));
-    totalHeight += containerExtent(plan, axes.vertical);
+    widest = math.max(widest, packingExtent(plan, axes.horizontal));
+    totalHeight += packingExtent(plan, axes.vertical);
   }
   if (widest <= 0 || totalHeight <= 0) return 1;
 

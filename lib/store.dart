@@ -132,8 +132,7 @@ class GearStore extends ChangeNotifier {
 
   /// Every plan, resolved. Plans whose container gear has been deleted are
   /// dropped rather than crashing a screen.
-  List<Plan> get plans =>
-      _plans.map(_resolve).whereType<Plan>().toList();
+  List<Plan> get plans => _plans.map(_resolve).whereType<Plan>().toList();
 
   Plan? planFor(String planId) {
     final record = planRecordById(planId);
@@ -540,6 +539,7 @@ class GearStore extends ChangeNotifier {
     required String containerItemId,
     String? name,
     double? tolerance,
+    double heightOverflow = 0,
   }) async {
     final container = itemById(containerItemId);
     if (container == null) return null;
@@ -549,6 +549,7 @@ class GearStore extends ChangeNotifier {
       name: name ?? container.name,
       containerItemId: containerItemId,
       tolerance: tolerance ?? _settings.defaultTolerance,
+      heightOverflow: heightOverflow,
     );
     _plans.add(record);
     await _commit();
@@ -560,6 +561,7 @@ class GearStore extends ChangeNotifier {
     required String name,
     String? containerItemId,
     required double tolerance,
+    double heightOverflow = 0,
   }) async {
     final record = planRecordById(planId);
     if (record == null) return;
@@ -572,6 +574,10 @@ class GearStore extends ChangeNotifier {
       name: name,
       containerItemId: containerItemId,
       tolerance: tolerance,
+      // Not folded into [reshaped] - it only relaxes where gear is allowed
+      // to be dragged, not where the packer places it, so changing it
+      // should never undo a manual layout the way a real reshape does.
+      heightOverflow: heightOverflow,
     );
 
     // A different bag or a different gap invalidates every position, so lay it
@@ -652,6 +658,7 @@ class GearStore extends ChangeNotifier {
       name: '${record.name} copy',
       containerItemId: record.containerItemId,
       tolerance: record.tolerance,
+      heightOverflow: record.heightOverflow,
       items: items,
       placements: placements,
       swappedViews: {...record.swappedViews},
@@ -697,7 +704,9 @@ class GearStore extends ChangeNotifier {
 
     _replace(
       record.copyWith(
-        items: record.items.where((planItem) => planItem.id != entryId).toList(),
+        items: record.items
+            .where((planItem) => planItem.id != entryId)
+            .toList(),
         placements: {...record.placements}..remove(entryId),
       ),
     );
@@ -779,7 +788,10 @@ class GearStore extends ChangeNotifier {
       y: _clamp(
         placement.y + dy,
         margin,
-        plan.container.height - margin - placement.height,
+        plan.container.height +
+            record.heightOverflow -
+            margin -
+            placement.height,
       ),
       z: _clamp(
         placement.z + dz,
@@ -834,11 +846,7 @@ class GearStore extends ChangeNotifier {
     }
 
     final settled = turned.copyWith(
-      x: _clamp(
-        turned.x,
-        margin,
-        plan.container.width - margin - turned.width,
-      ),
+      x: _clamp(turned.x, margin, plan.container.width - margin - turned.width),
       y: _clamp(
         turned.y,
         margin,

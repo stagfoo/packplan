@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:packplan/main.dart' as app;
 import 'package:packplan/main.dart';
+import 'package:packplan/preview_3d.dart';
 import 'package:packplan/repository.dart';
 import 'package:packplan/store.dart';
 
@@ -590,6 +591,85 @@ void main() {
         find.byIcon(Icons.rotate_90_degrees_cw_outlined),
         findsOneWidget,
       );
+    });
+  });
+
+  group('the 3D preview', () {
+    Future<String> campWithChuckbox() async {
+      final bag = await store.addItem(
+        name: 'Camp',
+        width: 90,
+        height: 50,
+        depth: 20,
+        isContainer: true,
+      );
+      final plan = (await store.addPlan(
+        containerItemId: bag.id,
+        name: 'Camp',
+      ))!;
+      final box = await store.addItem(
+        name: 'Chuckbox',
+        width: 45,
+        height: 30,
+        depth: 20,
+      );
+      await store.addGear(plan.id, box.id);
+      return plan.id;
+    }
+
+    testWidgets('a 3D plan offers a Views/3D toggle, a flat one does not', (
+      tester,
+    ) async {
+      await seed(tester, () async {
+        await store.load();
+        await campWithChuckbox();
+        final pouch = await store.addItem(
+          name: 'Pouch',
+          width: 20,
+          height: 13,
+          isContainer: true,
+        );
+        await store.addPlan(containerItemId: pouch.id, name: 'Pouch');
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Camp'));
+      await tester.pumpAndSettle();
+      expect(find.text('3D'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pouch'));
+      await tester.pumpAndSettle();
+      expect(find.text('3D'), findsNothing);
+    });
+
+    testWidgets('tapping 3D swaps the diagram for the preview', (
+      tester,
+    ) async {
+      await seed(tester, () async {
+        await store.load();
+        await campWithChuckbox();
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Camp'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Preview3D), findsNothing);
+
+      await tester.tap(find.text('3D'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Preview3D), findsOneWidget);
+
+      await tester.tap(find.text('Views'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Preview3D), findsNothing);
     });
   });
 }

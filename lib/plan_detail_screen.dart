@@ -5,6 +5,7 @@ import 'edit_sheets.dart';
 import 'gear_library_screen.dart';
 import 'models.dart';
 import 'packer.dart';
+import 'preview_3d.dart';
 import 'store.dart';
 import 'units.dart';
 
@@ -25,6 +26,12 @@ class PlanDetailScreen extends StatefulWidget {
 
 class _PlanDetailScreenState extends State<PlanDetailScreen> {
   String? _selectedEntryId;
+
+  // Which way the diagram area is showing the plan - not persisted, since
+  // it's a way of looking at the plan rather than a fact about it (unlike
+  // hiddenViews/swappedViews, which describe the orthographic views
+  // themselves and matter again next time the plan is opened).
+  bool _show3D = false;
 
   @override
   Widget build(BuildContext context) {
@@ -106,24 +113,55 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                         '${plan.container.name}. Lower it, or pack into '
                         'something bigger.',
                   ),
+                if (plan.isThreeDimensional)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      12,
+                      horizontalPadding,
+                      0,
+                    ),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(
+                            value: false,
+                            label: Text('Views'),
+                            icon: Icon(Icons.dashboard_outlined),
+                          ),
+                          ButtonSegment(
+                            value: true,
+                            label: Text('3D'),
+                            icon: Icon(Icons.view_in_ar_outlined),
+                          ),
+                        ],
+                        selected: {_show3D},
+                        onSelectionChanged: (selection) =>
+                            setState(() => _show3D = selection.first),
+                      ),
+                    ),
+                  ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(
+                  padding: EdgeInsets.fromLTRB(
                     horizontalPadding,
-                    12,
+                    plan.isThreeDimensional ? 8 : 12,
                     horizontalPadding,
                     4,
                   ),
                   child: SizedBox(
                     height: diagramHeight,
-                    child: _Diagram(
-                      plan: plan,
-                      issues: issues,
-                      selectedEntryId: _selectedEntryId,
-                      onSelected: (entryId) =>
-                          setState(() => _selectedEntryId = entryId),
-                      onRotate: _rotate,
-                      store: widget.store,
-                    ),
+                    child: plan.isThreeDimensional && _show3D
+                        ? Preview3D(plan: plan)
+                        : _Diagram(
+                            plan: plan,
+                            issues: issues,
+                            selectedEntryId: _selectedEntryId,
+                            onSelected: (entryId) =>
+                                setState(() => _selectedEntryId = entryId),
+                            onRotate: _rotate,
+                            store: widget.store,
+                          ),
                   ),
                 ),
                 if (plan.packed.isNotEmpty)

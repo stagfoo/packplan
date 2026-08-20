@@ -286,6 +286,7 @@ class PlanRecord {
     this.items = const [],
     this.placements = const {},
     this.swappedViews = const {},
+    this.hiddenViews = const {'front'},
   });
 
   final String id;
@@ -310,6 +311,11 @@ class PlanRecord {
   /// flat so it reads on a phone.
   final Set<String> swappedViews;
 
+  /// Views the user has hidden, by view name. Defaults to `{'front'}` -
+  /// Top + Side alone already cover all three axes for editing, and Front
+  /// is one tap away rather than crowding a phone screen by default.
+  final Set<String> hiddenViews;
+
   PlanRecord copyWith({
     String? name,
     String? containerItemId,
@@ -317,6 +323,7 @@ class PlanRecord {
     List<PlanItem>? items,
     Map<String, Placement>? placements,
     Set<String>? swappedViews,
+    Set<String>? hiddenViews,
   }) => PlanRecord(
     id: id,
     name: name ?? this.name,
@@ -325,6 +332,7 @@ class PlanRecord {
     items: items ?? this.items,
     placements: placements ?? this.placements,
     swappedViews: swappedViews ?? this.swappedViews,
+    hiddenViews: hiddenViews ?? this.hiddenViews,
   );
 
   Map<String, dynamic> toJson() => {
@@ -337,6 +345,7 @@ class PlanRecord {
       (entryId, placement) => MapEntry(entryId, placement.toJson()),
     ),
     'swappedViews': swappedViews.toList(),
+    'hiddenViews': hiddenViews.toList(),
   };
 
   factory PlanRecord.fromJson(Map<String, dynamic> json) {
@@ -358,6 +367,16 @@ class PlanRecord {
       swappedViews: (json['swappedViews'] as List<dynamic>? ?? [])
           .map((view) => view as String)
           .toSet(),
+      // No key at all means this plan predates hiddenViews - fall back to
+      // the same default as a brand-new plan (Front hidden), not an empty
+      // set, so existing plans keep showing exactly what they show today.
+      // A present-but-empty list is a real choice (every view shown) and
+      // stays empty.
+      hiddenViews: json['hiddenViews'] == null
+          ? const {'front'}
+          : (json['hiddenViews'] as List<dynamic>)
+              .map((view) => view as String)
+              .toSet(),
     );
   }
 }
@@ -449,6 +468,7 @@ class Plan {
   String get name => record.name;
   double get tolerance => record.tolerance;
   Set<String> get swappedViews => record.swappedViews;
+  Set<String> get hiddenViews => record.hiddenViews;
 
   /// The plan is three-dimensional only when the container and at least one
   /// piece of gear carry a depth. Otherwise the side view has nothing to show.

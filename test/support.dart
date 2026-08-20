@@ -79,6 +79,13 @@ Plan withPlacements(Plan plan, Map<String, Placement> placements) => Plan(
       .toList(),
 );
 
+/// Rebuilds a plan with the given set of hidden views.
+Plan withHiddenViews(Plan plan, Set<String> hiddenViews) => Plan(
+  record: plan.record.copyWith(hiddenViews: hiddenViews),
+  container: plan.container,
+  entries: plan.entries,
+);
+
 Placement placementAt({
   required String entryId,
   double x = 0,

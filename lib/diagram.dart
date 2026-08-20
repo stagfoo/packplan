@@ -7,14 +7,18 @@ import 'packer.dart';
 import 'units.dart';
 
 /// One of the container's three axes, in plan space.
+///
+/// [axisLetter] follows the common CAD/architectural convention: X and Y
+/// are the horizontal plane (width and depth), Z is vertical (height).
 enum PlanAxis {
-  width('width'),
-  height('height'),
-  depth('depth');
+  width('width', 'X'),
+  height('height', 'Z'),
+  depth('depth', 'Y');
 
-  const PlanAxis(this.label);
+  const PlanAxis(this.label, this.axisLetter);
 
   final String label;
+  final String axisLetter;
 }
 
 /// Which way you are looking at the container.
@@ -522,7 +526,8 @@ class _ContainerViewState extends State<ContainerView> {
                   '${unit.format(containerExtent(widget.plan, axes.horizontal))}'
                   ' × '
                   '${unit.formatWithSymbol(containerExtent(widget.plan, axes.vertical))}'
-                  '  (${axes.horizontal.label} × ${axes.vertical.label})',
+                  '  (${axes.horizontal.axisLetter} · ${axes.horizontal.label}'
+                  '  ×  ${axes.vertical.axisLetter} · ${axes.vertical.label})',
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -661,6 +666,12 @@ const double kViewPadding = 6.0;
 
 /// Space between the front and side views.
 const double kViewGap = 12.0;
+
+/// Height reserved for the Front/Top/Side show/hide chip row above the
+/// stacked views. A `FilterChip` row is roughly [kViewLabelHeight]'s size;
+/// named separately since it is conceptually a different piece of chrome,
+/// even though the number happens to match today.
+const double kVisibilityToolbarHeight = kViewLabelHeight;
 
 /// The pixels-per-centimetre a stack of views should all be drawn at.
 ///

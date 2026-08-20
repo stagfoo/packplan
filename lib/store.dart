@@ -600,6 +600,21 @@ class GearStore extends ChangeNotifier {
     await _commit();
   }
 
+  /// Shows or hides one of the three orthographic views. The caller is
+  /// responsible for not hiding the last visible one — this just flips the
+  /// flag, since the store has no opinion about how many views a screen
+  /// needs to keep on display.
+  Future<void> toggleViewVisibility(String planId, String viewName) async {
+    final record = planRecordById(planId);
+    if (record == null) return;
+
+    final hidden = {...record.hiddenViews};
+    if (!hidden.remove(viewName)) hidden.add(viewName);
+
+    _replace(record.copyWith(hiddenViews: hidden));
+    await _commit();
+  }
+
   Future<void> deletePlan(String planId) async {
     _plans.removeWhere((plan) => plan.id == planId);
     await _commit();
@@ -640,6 +655,7 @@ class GearStore extends ChangeNotifier {
       items: items,
       placements: placements,
       swappedViews: {...record.swappedViews},
+      hiddenViews: {...record.hiddenViews},
     );
 
     _plans.add(copy);

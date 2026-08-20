@@ -268,11 +268,11 @@ void main() {
     }) async {
       await tester.enterText(find.widgetWithText(TextFormField, 'Name'), name);
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Width'),
+        find.widgetWithText(TextFormField, 'Width (X)'),
         width,
       );
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Height'),
+        find.widgetWithText(TextFormField, 'Height (Z)'),
         height,
       );
 

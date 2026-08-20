@@ -249,7 +249,7 @@ class _GearItemSheetState extends State<GearItemSheet> {
               Expanded(
                 child: DimensionField(
                   controller: _width,
-                  label: 'Width',
+                  label: 'Width (${PlanAxis.width.axisLetter})',
                   validator: _requiredNumber,
                 ),
               ),
@@ -257,7 +257,7 @@ class _GearItemSheetState extends State<GearItemSheet> {
               Expanded(
                 child: DimensionField(
                   controller: _height,
-                  label: 'Height',
+                  label: 'Height (${PlanAxis.height.axisLetter})',
                   validator: _requiredNumber,
                 ),
               ),
@@ -265,7 +265,7 @@ class _GearItemSheetState extends State<GearItemSheet> {
               Expanded(
                 child: DimensionField(
                   controller: _depth,
-                  label: 'Depth',
+                  label: 'Depth (${PlanAxis.depth.axisLetter})',
                   hint: 'optional',
                   validator: _optionalNumber,
                 ),

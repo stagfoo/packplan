@@ -1389,4 +1389,81 @@ void main() {
       expect(store.planRecordById(copy!.id)!.swappedViews, {'side'});
     });
   });
+
+  group('view visibility', () {
+    Future<PlanRecord> trolley() async {
+      final bag = await store.addItem(
+        name: 'Trolley bag',
+        width: 60,
+        height: 300,
+        depth: 40,
+        isContainer: true,
+      );
+      return (await store.addPlan(
+        containerItemId: bag.id,
+        name: 'Trolley',
+      ))!;
+    }
+
+    test('front starts hidden - top and side are the default pair', () async {
+      final plan = await trolley();
+
+      expect(store.planRecordById(plan.id)!.hiddenViews, {'front'});
+    });
+
+    test('hiding is remembered per view', () async {
+      final plan = await trolley();
+
+      await store.toggleViewVisibility(plan.id, 'side');
+
+      expect(store.planRecordById(plan.id)!.hiddenViews, {'front', 'side'});
+      expect(store.planFor(plan.id)!.hiddenViews, contains('side'));
+    });
+
+    test('toggling a hidden view shows it again', () async {
+      final plan = await trolley();
+
+      await store.toggleViewVisibility(plan.id, 'front');
+
+      expect(store.planRecordById(plan.id)!.hiddenViews, isEmpty);
+    });
+
+    test('hiding moves nothing', () async {
+      final plan = await trolley();
+      final box = await store.addItem(
+        name: 'box',
+        width: 20,
+        height: 20,
+        depth: 20,
+      );
+      await store.addGear(plan.id, box.id);
+      final before = store.planFor(plan.id)!.entries.single.placement!;
+
+      await store.toggleViewVisibility(plan.id, 'side');
+
+      // Purely how it is drawn.
+      final after = store.planFor(plan.id)!.entries.single.placement!;
+      expect(after.x, before.x);
+      expect(after.y, before.y);
+      expect(after.z, before.z);
+    });
+
+    test('hiding survives a reload', () async {
+      final plan = await trolley();
+      await store.toggleViewVisibility(plan.id, 'side');
+
+      final reloaded = await reload();
+
+      expect(reloaded.planRecordById(plan.id)!.hiddenViews, {'front', 'side'});
+    });
+
+    test('a duplicated plan keeps which views are hidden', () async {
+      final plan = await trolley();
+      await store.toggleViewVisibility(plan.id, 'side');
+
+      final copy = await store.duplicatePlan(plan.id);
+
+      expect(store.planRecordById(copy!.id)!.hiddenViews, {'front', 'side'});
+    });
+  });
 }

@@ -207,7 +207,10 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
       availableHeight: double.infinity,
     );
 
-    var total = kViewGap * (views.length - 1);
+    // The show/hide chip row sits above the stacked views regardless of how
+    // many of them are visible.
+    var total = kVisibilityToolbarHeight + kViewGap;
+    if (views.isNotEmpty) total += kViewGap * (views.length - 1);
     for (final entry in views) {
       final axes = axesFor(entry.view, swapped: entry.swapped);
       total +=
@@ -441,6 +444,33 @@ class _Diagram extends StatelessWidget {
     );
   }
 
+  /// Front/Top/Side toggle chips. A chip for the last remaining visible view
+  /// disables itself — hiding it would leave nothing on screen to pack by —
+  /// rather than allowing the tap and silently doing nothing.
+  Widget _visibilityToolbar() {
+    final visible = <ViewAxis>{
+      for (final view in const [ViewAxis.front, ViewAxis.top, ViewAxis.side])
+        if (!plan.hiddenViews.contains(view.name)) view,
+    };
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: kViewGap),
+      child: Wrap(
+        spacing: 8,
+        children: [
+          for (final view in const [ViewAxis.front, ViewAxis.top, ViewAxis.side])
+            FilterChip(
+              label: Text(view.label),
+              selected: visible.contains(view),
+              onSelected: visible.length == 1 && visible.contains(view)
+                  ? null
+                  : (_) => store.toggleViewVisibility(plan.id, view.name),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!plan.isThreeDimensional) return _view(ViewAxis.front);
@@ -449,50 +479,69 @@ class _Diagram extends StatelessWidget {
 
     // Every view has to share one scale, or the same container reads as a
     // different size in each and nothing on screen is comparable.
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final scale = sharedScaleFor(
-          plan,
-          views,
-          availableWidth: constraints.maxWidth,
-          availableHeight: constraints.maxHeight,
-        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _visibilityToolbar(),
+        if (views.isEmpty)
+          const Text('No views selected.')
+        else
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final scale = sharedScaleFor(
+                  plan,
+                  views,
+                  availableWidth: constraints.maxWidth,
+                  availableHeight: constraints.maxHeight,
+                );
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var i = 0; i < views.length; i++) ...[
-              if (i > 0) const SizedBox(height: kViewGap),
-              // Full width, so a narrow view's label still has room to print;
-              // the board itself is pinned left inside it.
-              SizedBox(
-                width: double.infinity,
-                height:
-                    containerExtent(
-                      plan,
-                      axesFor(views[i].view, swapped: views[i].swapped).vertical,
-                    ) *
-                        scale +
-                    kViewPadding * 2 +
-                    kViewLabelHeight,
-                child: _view(views[i].view, fixedScale: scale),
-              ),
-            ],
-          ],
-        );
-      },
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (var i = 0; i < views.length; i++) ...[
+                      if (i > 0) const SizedBox(height: kViewGap),
+                      // Full width, so a narrow view's label still has room to
+                      // print; the board itself is pinned left inside it.
+                      SizedBox(
+                        width: double.infinity,
+                        height:
+                            containerExtent(
+                              plan,
+                              axesFor(
+                                views[i].view,
+                                swapped: views[i].swapped,
+                              ).vertical,
+                            ) *
+                                scale +
+                            kViewPadding * 2 +
+                            kViewLabelHeight,
+                        child: _view(views[i].view, fixedScale: scale),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 }
 
 /// The views a plan shows, in the order they are stacked.
 ///
-/// Top then side: between them they cover all three axes, and the top view is
-/// the one you actually look at when you pack a tub. Phones have far more
-/// vertical room than horizontal, so they stack rather than sit side by side.
+/// All three orthographic views cover a different pair of axes; which ones
+/// are actually on screen is up to [Plan.hiddenViews] (defaults to Top +
+/// Side — between them they already cover all three axes, and the top view
+/// is the one you actually look at when you pack a tub, so Front starts
+/// hidden rather than crowding a phone screen by default). Phones have far
+/// more vertical room than horizontal, so visible views stack rather than
+/// sit side by side.
 List<({ViewAxis view, bool swapped})> viewsFor(Plan plan) => [
-  for (final view in const [ViewAxis.top, ViewAxis.side])
-    (view: view, swapped: plan.swappedViews.contains(view.name)),
+  for (final view in const [ViewAxis.front, ViewAxis.top, ViewAxis.side])
+    if (!plan.hiddenViews.contains(view.name))
+      (view: view, swapped: plan.swappedViews.contains(view.name)),
 ];
 
 /// The one-line verdict: how full the container is and what is left over.

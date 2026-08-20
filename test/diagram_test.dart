@@ -86,6 +86,12 @@ void main() {
   });
 
   group('view axes', () {
+    test('each axis has the CAD-convention X/Y/Z letter', () {
+      expect(PlanAxis.width.axisLetter, 'X');
+      expect(PlanAxis.depth.axisLetter, 'Y');
+      expect(PlanAxis.height.axisLetter, 'Z');
+    });
+
     test('each view shows a different pair of plan axes', () {
       expect(axesFor(ViewAxis.front), (
         horizontal: PlanAxis.width,
@@ -122,6 +128,27 @@ void main() {
 
       // Otherwise some dimension would be impossible to drag.
       expect(shown, PlanAxis.values.toSet());
+    });
+
+    test('front starts hidden - top and side are the default pair', () {
+      final views = viewsFor(packedSample(depth: 20));
+      expect(views.map((v) => v.view), [ViewAxis.top, ViewAxis.side]);
+    });
+
+    test('showing front adds it in front-top-side order', () {
+      final views = viewsFor(withHiddenViews(packedSample(depth: 20), {}));
+      expect(views.map((v) => v.view), [
+        ViewAxis.front,
+        ViewAxis.top,
+        ViewAxis.side,
+      ]);
+    });
+
+    test('hiding every view but one leaves just that one', () {
+      final views = viewsFor(
+        withHiddenViews(packedSample(depth: 20), {'front', 'top'}),
+      );
+      expect(views.map((v) => v.view), [ViewAxis.side]);
     });
 
     test('the third axis is the one running into the screen', () {

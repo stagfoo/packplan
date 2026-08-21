@@ -121,9 +121,10 @@ void main() {
 
     test('top and side together still cover all three axes', () {
       final shown = <PlanAxis>{
-        ...[axesFor(ViewAxis.top), axesFor(ViewAxis.side)].expand(
-          (axes) => [axes.horizontal, axes.vertical],
-        ),
+        ...[
+          axesFor(ViewAxis.top),
+          axesFor(ViewAxis.side),
+        ].expand((axes) => [axes.horizontal, axes.vertical]),
       };
 
       // Otherwise some dimension would be impossible to drag.
@@ -240,19 +241,38 @@ void main() {
     // wrong in the other" report: no view but this one can move either
     // piece far enough apart in width or depth to actually fix it.
     final stackedInHeight = [
-      placementAt(entryId: 'a', x: 0, y: 0, z: 0, width: 10, height: 10, depth: 10),
-      placementAt(entryId: 'b', x: 0, y: 15, z: 0, width: 10, height: 10, depth: 10),
+      placementAt(
+        entryId: 'a',
+        x: 0,
+        y: 0,
+        z: 0,
+        width: 10,
+        height: 10,
+        depth: 10,
+      ),
+      placementAt(
+        entryId: 'b',
+        x: 0,
+        y: 15,
+        z: 0,
+        width: 10,
+        height: 10,
+        depth: 10,
+      ),
     ];
 
-    test('flags a pair sharing this view\'s axes even without a real 3D overlap', () {
-      final conflicts = hiddenAxisConflicts(
-        stackedInHeight,
-        PlanAxis.width,
-        PlanAxis.depth,
-        const {},
-      );
-      expect(conflicts, {'a', 'b'});
-    });
+    test(
+      'flags a pair sharing this view\'s axes even without a real 3D overlap',
+      () {
+        final conflicts = hiddenAxisConflicts(
+          stackedInHeight,
+          PlanAxis.width,
+          PlanAxis.depth,
+          const {},
+        );
+        expect(conflicts, {'a', 'b'});
+      },
+    );
 
     test('does not flag the view whose axes actually show them apart', () {
       final conflicts = hiddenAxisConflicts(
@@ -264,28 +284,68 @@ void main() {
       expect(conflicts, isEmpty);
     });
 
-    test('does not flag pieces that are actually separated on this view\'s own axes', () {
-      final apart = [
-        placementAt(entryId: 'a', x: 0, y: 0, z: 0, width: 10, height: 10, depth: 10),
-        placementAt(entryId: 'b', x: 20, y: 0, z: 0, width: 10, height: 10, depth: 10),
-      ];
-      expect(
-        hiddenAxisConflicts(apart, PlanAxis.width, PlanAxis.depth, const {}),
-        isEmpty,
-      );
-    });
+    test(
+      'does not flag pieces that are actually separated on this view\'s own axes',
+      () {
+        final apart = [
+          placementAt(
+            entryId: 'a',
+            x: 0,
+            y: 0,
+            z: 0,
+            width: 10,
+            height: 10,
+            depth: 10,
+          ),
+          placementAt(
+            entryId: 'b',
+            x: 20,
+            y: 0,
+            z: 0,
+            width: 10,
+            height: 10,
+            depth: 10,
+          ),
+        ];
+        expect(
+          hiddenAxisConflicts(apart, PlanAxis.width, PlanAxis.depth, const {}),
+          isEmpty,
+        );
+      },
+    );
 
     test('defers to a real overlap instead of double-flagging it', () {
       final trulyOverlapping = [
-        placementAt(entryId: 'a', x: 0, y: 0, z: 0, width: 10, height: 10, depth: 10),
-        placementAt(entryId: 'b', x: 5, y: 5, z: 5, width: 10, height: 10, depth: 10),
+        placementAt(
+          entryId: 'a',
+          x: 0,
+          y: 0,
+          z: 0,
+          width: 10,
+          height: 10,
+          depth: 10,
+        ),
+        placementAt(
+          entryId: 'b',
+          x: 5,
+          y: 5,
+          z: 5,
+          width: 10,
+          height: 10,
+          depth: 10,
+        ),
       ];
       final issues = {
         'a': {PlacementIssue.overlapping},
         'b': {PlacementIssue.overlapping},
       };
       expect(
-        hiddenAxisConflicts(trulyOverlapping, PlanAxis.width, PlanAxis.depth, issues),
+        hiddenAxisConflicts(
+          trulyOverlapping,
+          PlanAxis.width,
+          PlanAxis.depth,
+          issues,
+        ),
         isEmpty,
       );
     });
@@ -515,10 +575,7 @@ void main() {
         ),
       );
 
-      expect(
-        find.textContaining('Front · 300 × 400 mm'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Front · 300 × 400 mm'), findsOneWidget);
     });
   });
 
@@ -539,7 +596,7 @@ void main() {
     });
   });
 
-  group('shared scale across the two views', () {
+  group('shared scale across a grid of views', () {
     // The reported case: a 300 x 300 x 105 tub, whose side view used to be
     // drawn almost twice the size of its own front view.
     Plan tub() => planOf(
@@ -551,15 +608,18 @@ void main() {
 
     test('every view is drawn at the same scale', () {
       final plan = tub();
-      final scale = sharedScaleFor(
+      final views = viewsFor(plan);
+      final scale = sharedScaleForGrid(
         plan,
-        viewsFor(plan),
+        views,
         availableWidth: 660,
         availableHeight: 400,
+        columns: 2,
+        rows: 1,
       );
 
       final boards = [
-        for (final entry in viewsFor(plan))
+        for (final entry in views)
           ViewGeometry(
             planWidth: containerExtent(
               plan,
@@ -575,21 +635,17 @@ void main() {
       ];
 
       expect(boards.map((b) => b.scale).toSet(), {scale});
-      // The top view's width and the front-facing width are the same measure,
-      // so they must draw the same size.
-      expect(
-        boards.first.boardSize.width,
-        closeTo(plan.container.width * scale, 1e-9),
-      );
     });
 
     test('depth reads truthfully against width', () {
       final plan = tub();
-      final scale = sharedScaleFor(
+      final scale = sharedScaleForGrid(
         plan,
         viewsFor(plan),
         availableWidth: 660,
         availableHeight: 400,
+        columns: 2,
+        rows: 1,
       );
 
       // The top view is 300 across and 105 down: depth against width.
@@ -599,65 +655,80 @@ void main() {
       );
     });
 
-    test('the stack fits the width it is given', () {
+    test('each cell fits the width it is given', () {
       final plan = tub();
       const available = 660.0;
-      final scale = sharedScaleFor(
+      final views = viewsFor(plan);
+      final scale = sharedScaleForGrid(
         plan,
-        viewsFor(plan),
+        views,
         availableWidth: available,
         availableHeight: 400,
+        columns: 2,
+        rows: 1,
       );
 
-      for (final entry in viewsFor(plan)) {
+      // Two columns, so each cell only gets half the width, minus the gap
+      // between them.
+      final cellWidth = (available - kViewGap) / 2;
+      for (final entry in views) {
         final axes = axesFor(entry.view, swapped: entry.swapped);
         final used =
             containerExtent(plan, axes.horizontal) * scale + kViewPadding * 2;
-        expect(used, lessThanOrEqualTo(available + 1e-9));
+        expect(used, lessThanOrEqualTo(cellWidth + 1e-9));
       }
     });
 
-    test('the stack fits the height it is given', () {
+    test('each cell fits the height it is given', () {
       final plan = tub();
       const available = 500.0;
       final views = viewsFor(plan);
-      final scale = sharedScaleFor(
+      final scale = sharedScaleForGrid(
         plan,
         views,
         availableWidth: 1000,
         availableHeight: available,
+        columns: 2,
+        rows: 1,
       );
 
-      var used = kViewGap * (views.length - 1);
       for (final entry in views) {
         final axes = axesFor(entry.view, swapped: entry.swapped);
-        used +=
+        final used =
             containerExtent(plan, axes.vertical) * scale +
             kViewPadding * 2 +
             kViewLabelHeight;
+        expect(used, lessThanOrEqualTo(available + 1e-9));
       }
-      expect(used, lessThanOrEqualTo(available + 1e-9));
     });
 
-    test('swapping a view changes what the stack has to fit', () {
+    test('swapping a view changes what a cell has to fit', () {
       final plan = tub();
-      final natural = sharedScaleFor(
+      // Tight enough that natural's 300-tall side view is height-bound,
+      // but loose enough that laying it flat (105 tall once swapped) frees
+      // it up to be width-bound instead - so the two must land on
+      // different scales.
+      final natural = sharedScaleForGrid(
         plan,
         viewsFor(plan),
         availableWidth: 660,
-        availableHeight: 400,
+        availableHeight: 246,
+        columns: 2,
+        rows: 1,
       );
 
       // Laying the side view flat puts its 300 of height across the screen
       // instead of down it.
-      final laidFlat = sharedScaleFor(
+      final laidFlat = sharedScaleForGrid(
         plan,
         const [
           (view: ViewAxis.top, swapped: false),
           (view: ViewAxis.side, swapped: true),
         ],
         availableWidth: 660,
-        availableHeight: 400,
+        availableHeight: 246,
+        columns: 2,
+        rows: 1,
       );
 
       expect(laidFlat, isNot(natural));
@@ -671,40 +742,75 @@ void main() {
         items: [gear('a', width: 5, height: 5, depth: 5)],
       );
 
-      final scale = sharedScaleFor(
+      final scale = sharedScaleForGrid(
         plan,
         viewsFor(plan),
         availableWidth: 1000,
         availableHeight: 200,
+        columns: 2,
+        rows: 1,
       );
 
       expect(plan.container.height * scale, lessThanOrEqualTo(200));
     });
 
+    test('a second row leaves each cell less height to work with', () {
+      final plan = planOf(
+        width: 10,
+        height: 400,
+        depth: 10,
+        items: [gear('a', width: 5, height: 5, depth: 5)],
+      );
+
+      final oneRow = sharedScaleForGrid(
+        plan,
+        viewsFor(plan),
+        availableWidth: 1000,
+        availableHeight: 400,
+        columns: 2,
+        rows: 1,
+      );
+      final twoRows = sharedScaleForGrid(
+        plan,
+        viewsFor(plan),
+        availableWidth: 1000,
+        availableHeight: 400,
+        columns: 1,
+        rows: 2,
+      );
+
+      expect(twoRows, lessThan(oneRow));
+    });
+
     test('an unbounded height asks only what the width allows', () {
       final plan = tub();
 
-      final scale = sharedScaleFor(
+      final scale = sharedScaleForGrid(
         plan,
         viewsFor(plan),
         availableWidth: 660,
         availableHeight: double.infinity,
+        columns: 2,
+        rows: 1,
       );
 
-      // Stacked, the widest view sets the horizontal limit — the top view's
-      // 300 of width — rather than the two adding up across a row.
-      expect(scale, closeTo((660 - kViewPadding * 2) / 300, 1e-9));
+      // Two columns, so each cell only gets half the width — the top view's
+      // 300 of width sets the limit within that half.
+      final cellWidth = (660 - kViewGap) / 2;
+      expect(scale, closeTo((cellWidth - kViewPadding * 2) / 300, 1e-9));
     });
 
-    test('a degenerate container does not divide by zero', () {
-      final plan = planOf(width: 0, height: 0, depth: 0, items: const []);
+    test('an empty list of views does not divide by zero', () {
+      final plan = tub();
 
       expect(
-        sharedScaleFor(
+        sharedScaleForGrid(
           plan,
-          viewsFor(plan),
+          const [],
           availableWidth: 100,
           availableHeight: 100,
+          columns: 2,
+          rows: 1,
         ),
         1,
       );

@@ -754,49 +754,42 @@ const double kViewPadding = 6.0;
 /// Space between the front and side views.
 const double kViewGap = 12.0;
 
-/// Height reserved for the Front/Top/Side/3D show/hide chip row above the
-/// stacked views. A `FilterChip` row is roughly [kViewLabelHeight]'s size;
-/// named separately since it is conceptually a different piece of chrome,
-/// even though the number happens to match today.
-const double kVisibilityToolbarHeight = kViewLabelHeight;
-
-/// Height reserved for the 3D preview panel when it's stacked in alongside
-/// the orthographic views. Unlike those, it doesn't share their linear
-/// width/height/depth scale (an orbit camera doesn't have a single flat
-/// "extent" the way a 2D projection does), so it gets a fixed, reasonable
-/// size instead of participating in [sharedScaleFor]'s fit-to-box math.
-const double kPreview3DHeight = 260.0;
-
-/// The pixels-per-centimetre a stack of views should all be drawn at.
+/// The pixels-per-centimetre a grid of views (rather than a single stacked
+/// column) should all be drawn at — a Blender-style layout where every view
+/// gets its own quadrant instead of competing for a shared height budget
+/// down one column.
 ///
-/// Every view has to use one scale, or the same container reads as a different
-/// size in each and the diagram stops being comparable. Stacked, the widest
-/// view sets the horizontal limit and the heights add up.
-double sharedScaleFor(
+/// [columns] and [rows] describe the grid every view (2D or not) is laid out
+/// in — [views] only carries the 2D ones, since the 3D preview doesn't share
+/// this linear scale, but it still occupies a cell and its size still shrinks
+/// the budget every other cell gets.
+double sharedScaleForGrid(
   Plan plan,
   List<({ViewAxis view, bool swapped})> views, {
   required double availableWidth,
   required double availableHeight,
+  required int columns,
+  required int rows,
 }) {
   if (views.isEmpty) return 1;
 
   var widest = 0.0;
-  var totalHeight = 0.0;
+  var tallest = 0.0;
   for (final entry in views) {
     final axes = axesFor(entry.view, swapped: entry.swapped);
     widest = math.max(widest, packingExtent(plan, axes.horizontal));
-    totalHeight += packingExtent(plan, axes.vertical);
+    tallest = math.max(tallest, packingExtent(plan, axes.vertical));
   }
-  if (widest <= 0 || totalHeight <= 0) return 1;
+  if (widest <= 0 || tallest <= 0) return 1;
 
-  final usableWidth = math.max(availableWidth - kViewPadding * 2, 1.0);
-  final byWidth = usableWidth / widest;
+  final cellWidth =
+      (availableWidth - kViewGap * (columns - 1)) / columns - kViewPadding * 2;
+  final byWidth = math.max(cellWidth, 1.0) / widest;
   if (!availableHeight.isFinite) return byWidth;
 
-  // Each view carries its own label and padding.
-  final chrome =
-      views.length * (kViewLabelHeight + kViewPadding * 2) +
-      kViewGap * (views.length - 1);
-  final usableHeight = math.max(availableHeight - chrome, 1.0);
-  return math.min(byWidth, usableHeight / totalHeight);
+  final cellHeight =
+      (availableHeight - kViewGap * (rows - 1)) / rows -
+      kViewPadding * 2 -
+      kViewLabelHeight;
+  return math.min(byWidth, math.max(cellHeight, 1.0) / tallest);
 }

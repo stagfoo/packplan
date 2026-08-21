@@ -217,34 +217,38 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
       return container.height * scale + kViewPadding * 2 + kViewLabelHeight;
     }
 
+    final views = viewsFor(plan);
+    final show3D = !plan.hiddenViews.contains('3d');
+    final panelCount = views.length + (show3D ? 1 : 0);
+    if (panelCount == 0) return kViewLabelHeight;
+
+    // A Blender-style grid: every panel gets its own quadrant rather than
+    // competing for a shared height budget down one column, so two panels
+    // sit side by side and a third or fourth starts a new row.
+    final columns = panelCount > 1 ? 2 : 1;
+    final rows = (panelCount / columns).ceil();
+
     // Unbounded height: this is asking how tall the diagram wants to be, and
     // the caller clamps it.
-    final views = viewsFor(plan);
-    final scale = sharedScaleFor(
+    final scale = sharedScaleForGrid(
       plan,
       views,
       availableWidth: availableWidth,
       availableHeight: double.infinity,
+      columns: columns,
+      rows: rows,
     );
 
-    final show3D = !plan.hiddenViews.contains('3d');
-    final panelCount = views.length + (show3D ? 1 : 0);
-
-    // The show/hide toolbar itself is rendered outside this budget (see
-    // its call site) - a Wrap of four chips can wrap to two lines on a
-    // narrow screen, and there's no fixed height that's both safe and not
-    // wasteful across every screen width.
-    var total = 0.0;
-    if (panelCount > 0) total += kViewGap * (panelCount - 1);
+    var tallest = 0.0;
     for (final entry in views) {
       final axes = axesFor(entry.view, swapped: entry.swapped);
-      total +=
-          packingExtent(plan, axes.vertical) * scale +
-          kViewPadding * 2 +
-          kViewLabelHeight;
+      final extent = packingExtent(plan, axes.vertical);
+      if (extent > tallest) tallest = extent;
     }
-    if (show3D) total += kPreview3DHeight;
-    return total;
+    // The 3D panel doesn't share the 2D views' linear scale, but in a grid
+    // it still only ever wants exactly one cell, same as everything else.
+    final cellHeight = tallest * scale + kViewPadding * 2 + kViewLabelHeight;
+    return rows * cellHeight + kViewGap * (rows - 1);
   }
 
   void _report(String message) {
@@ -479,67 +483,47 @@ class _Diagram extends StatelessWidget {
 
     if (views.isEmpty && !show3D) return const Text('No views selected.');
 
+    // A Blender-style grid: every panel gets its own quadrant rather than
+    // being squeezed into a shared height budget down one column, so two
+    // panels sit side by side and a third or fourth starts a new row.
+    final panelCount = views.length + (show3D ? 1 : 0);
+    final columns = panelCount > 1 ? 2 : 1;
+    final rows = (panelCount / columns).ceil();
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        // The 3D panel takes a fixed slice of the available height (it
-        // doesn't share the orthographic views' linear scale - see
-        // kPreview3DHeight) - the 2D views only get to fit themselves into
-        // whatever's left.
-        final reservedFor3D = show3D
-            ? kPreview3DHeight + (views.isNotEmpty ? kViewGap : 0)
-            : 0.0;
-        final scale = sharedScaleFor(
+        final scale = sharedScaleForGrid(
           plan,
           views,
           availableWidth: constraints.maxWidth,
-          availableHeight: constraints.maxHeight - reservedFor3D,
+          availableHeight: constraints.maxHeight,
+          columns: columns,
+          rows: rows,
         );
 
-        // Every panel is Flexible rather than a fixed-height SizedBox, with
-        // a flex weight proportional to its own wanted pixel height - the
-        // ratios between panels come out the same as their wanted sizes
-        // whenever everything fits, but if the total (computed from
-        // _diagramHeightFor) still doesn't fit the height the caller
-        // actually clamped it to, Flutter's flex layout shrinks every
-        // panel proportionally instead of overflowing. A fixed-height
-        // SizedBox for the 3D panel specifically doesn't have this
-        // property, which is what caused a real overflow here before.
-        Widget flexiblePanel(double wantedHeight, Widget child) => Flexible(
-          flex: (wantedHeight * 100).round().clamp(1, 1 << 30),
-          child: child,
-        );
+        final cells = <Widget>[
+          for (final entry in views) _view(entry.view, fixedScale: scale),
+          if (show3D) Preview3D(plan: plan),
+        ];
 
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (var i = 0; i < views.length; i++) ...[
-              if (i > 0) const SizedBox(height: kViewGap),
-              // Full width, so a narrow view's label still has room to
-              // print; the board itself is pinned left inside it.
-              flexiblePanel(
-                packingExtent(
-                          plan,
-                          axesFor(
-                            views[i].view,
-                            swapped: views[i].swapped,
-                          ).vertical,
-                        ) *
-                        scale +
-                    kViewPadding * 2 +
-                    kViewLabelHeight,
-                SizedBox(
-                  width: double.infinity,
-                  child: _view(views[i].view, fixedScale: scale),
-                ),
-              ),
-            ],
-            if (show3D) ...[
-              if (views.isNotEmpty) const SizedBox(height: kViewGap),
-              flexiblePanel(
-                kPreview3DHeight,
-                SizedBox(
-                  width: double.infinity,
-                  child: Preview3D(plan: plan),
+            for (var r = 0; r < rows; r++) ...[
+              if (r > 0) const SizedBox(height: kViewGap),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var c = 0; c < columns; c++) ...[
+                      if (c > 0) const SizedBox(width: kViewGap),
+                      Expanded(
+                        child: r * columns + c < cells.length
+                            ? cells[r * columns + c]
+                            : const SizedBox(),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ],

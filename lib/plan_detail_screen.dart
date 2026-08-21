@@ -51,6 +51,9 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
     final theme = Theme.of(context);
     final issues = findPlacementIssues(plan);
     final noSpace = toleranceLeavesNoSpace(plan);
+    final selectedEntry = _selectedEntryId == null
+        ? null
+        : plan.entryById(_selectedEntryId!);
 
     return Scaffold(
       appBar: AppBar(
@@ -143,7 +146,6 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                       selectedEntryId: _selectedEntryId,
                       onSelected: (entryId) =>
                           setState(() => _selectedEntryId = entryId),
-                      onRotate: _rotate,
                       store: widget.store,
                     ),
                   ),
@@ -182,27 +184,35 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: plan.entries.isEmpty
-                      ? null
-                      : () => _autoPack(plan),
-                  icon: const Icon(Icons.auto_awesome_mosaic),
-                  label: const Text('Auto-pack'),
+          child: selectedEntry == null
+              ? Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: plan.entries.isEmpty
+                            ? null
+                            : () => _autoPack(plan),
+                        icon: const Icon(Icons.auto_awesome_mosaic),
+                        label: const Text('Auto-pack'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => _addGear(plan),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add gear'),
+                      ),
+                    ),
+                  ],
+                )
+              : _SelectedGearActions(
+                  entry: selectedEntry,
+                  onDone: () => setState(() => _selectedEntryId = null),
+                  onRotate: () => _rotate(selectedEntry.id),
+                  onTogglePlaced: () => _togglePlaced(plan, selectedEntry),
+                  onRemove: () => _removeEntry(plan, selectedEntry),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _addGear(plan),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add gear'),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -442,6 +452,68 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
   }
 }
 
+/// Replaces the Auto-pack/Add gear bar while a piece of gear is selected —
+/// what you'd want to do with one specific item lives where your thumb
+/// already is, rather than a small icon floating over the diagram.
+class _SelectedGearActions extends StatelessWidget {
+  const _SelectedGearActions({
+    required this.entry,
+    required this.onDone,
+    required this.onRotate,
+    required this.onTogglePlaced,
+    required this.onRemove,
+  });
+
+  final PlanEntry entry;
+  final VoidCallback onDone;
+  final VoidCallback onRotate;
+  final VoidCallback onTogglePlaced;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton.outlined(
+          tooltip: 'Done with ${entry.item.name}',
+          onPressed: onDone,
+          icon: const Icon(Icons.close),
+        ),
+        const SizedBox(width: 8),
+        if (entry.isPacked) ...[
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: onRotate,
+              icon: const Icon(Icons.rotate_90_degrees_cw_outlined),
+              label: const Text('Rotate'),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: onTogglePlaced,
+            icon: Icon(
+              entry.isPacked
+                  ? Icons.visibility_off_outlined
+                  : Icons.inventory_2_outlined,
+            ),
+            label: Text(entry.isPacked ? 'Unplace' : 'Place'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: FilledButton.tonalIcon(
+            onPressed: onRemove,
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Remove'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _Banner extends StatelessWidget {
   const _Banner({required this.message});
 
@@ -472,7 +544,6 @@ class _Diagram extends StatelessWidget {
     required this.issues,
     required this.selectedEntryId,
     required this.onSelected,
-    required this.onRotate,
     required this.store,
   });
 
@@ -480,7 +551,6 @@ class _Diagram extends StatelessWidget {
   final Map<String, Set<PlacementIssue>> issues;
   final String? selectedEntryId;
   final ValueChanged<String?> onSelected;
-  final ValueChanged<String> onRotate;
   final GearStore store;
 
   void _onDragged(ViewAxis axis, String entryId, Offset planDelta) {
@@ -509,7 +579,6 @@ class _Diagram extends StatelessWidget {
       onSelected: onSelected,
       onDragged: (entryId, delta) => _onDragged(axis, entryId, delta),
       onDragEnded: store.flush,
-      onRotate: onRotate,
       fixedScale: fixedScale,
     );
   }

@@ -496,7 +496,6 @@ class ContainerView extends StatefulWidget {
     required this.onSelected,
     required this.onDragged,
     required this.onDragEnded,
-    required this.onRotate,
     this.fixedScale,
   });
 
@@ -514,9 +513,6 @@ class ContainerView extends StatefulWidget {
   /// rather than writing on every frame.
   final VoidCallback onDragEnded;
 
-  /// Turns the selected gear a quarter turn in *this* view's plane.
-  final ValueChanged<String> onRotate;
-
   /// Draw at this many pixels per centimetre instead of fitting to the space,
   /// so the views drawn alongside this one agree with it.
   final double? fixedScale;
@@ -531,13 +527,6 @@ class _ContainerViewState extends State<ContainerView> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    // Only placed gear can be turned — there is nothing on the diagram to turn
-    // otherwise.
-    final selectedId = widget.selectedEntryId;
-    final selected = selectedId == null
-        ? null
-        : widget.plan.packed.where((e) => e.id == selectedId).firstOrNull;
 
     return LayoutBuilder(
       builder: (context, outerConstraints) {
@@ -621,43 +610,7 @@ class _ContainerViewState extends State<ContainerView> {
                     child: CustomPaint(size: size, painter: painter),
                   );
 
-                  if (selected == null) return board;
-
-                  // Anchored to the container's own top-right rather than the
-                  // view's, so it stays attached to the shape instead of floating
-                  // in whatever empty space the aspect ratio leaves over.
-                  const buttonSize = 36.0;
-                  final frame = painter.geometryFor(size).boardRect;
-
-                  // The turn button sits in the view it turns things in, so there
-                  // is never a question of which way round "turn" means. It goes
-                  // over the diagram rather than in the header, where it would
-                  // squeeze the dimensions out of the side view's label.
-                  return Stack(
-                    children: [
-                      Positioned.fill(child: board),
-                      Positioned(
-                        top: math.max(frame.top - 6, 0),
-                        left: math.max(frame.right - buttonSize + 6, 0),
-                        child: Material(
-                          color: theme.colorScheme.surface.withValues(
-                            alpha: 0.85,
-                          ),
-                          shape: const CircleBorder(),
-                          clipBehavior: Clip.antiAlias,
-                          child: IconButton(
-                            tooltip: 'Turn ${selected.item.name}',
-                            visualDensity: VisualDensity.compact,
-                            iconSize: 18,
-                            icon: const Icon(
-                              Icons.rotate_90_degrees_cw_outlined,
-                            ),
-                            onPressed: () => widget.onRotate(selected.id),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
+                  return board;
                 },
               ),
             ),

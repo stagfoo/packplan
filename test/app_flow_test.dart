@@ -464,34 +464,33 @@ void main() {
       );
     });
 
-    testWidgets('selecting gear then turning it swaps its sides', (
-      tester,
-    ) async {
-      late String planId;
-      await seed(tester, () async {
-        await store.load();
-        planId = await campWithChuckbox();
-      });
+    testWidgets(
+      'selecting placed gear shows a rotate button in the bottom bar',
+      (tester) async {
+        late String planId;
+        await seed(tester, () async {
+          await store.load();
+          planId = await campWithChuckbox();
+        });
 
-      await tester.pumpWidget(PackPlanApp(store: store));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Camp'));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(PackPlanApp(store: store));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Camp'));
+        await tester.pumpAndSettle();
 
-      // Selecting from the gear list is the reliable way in a test; tapping
-      // the shape itself is covered by the diagram's own tests.
-      await tester.tap(find.text('Chuckbox'));
-      await tester.pumpAndSettle();
+        // Selecting from the gear list is the reliable way in a test;
+        // tapping the shape itself is covered by the diagram's own tests.
+        await tester.tap(find.text('Chuckbox'));
+        await tester.pumpAndSettle();
 
-      // One button per view, and the plan is three-dimensional.
-      expect(
-        find.byIcon(Icons.rotate_90_degrees_cw_outlined),
-        findsNWidgets(2),
-      );
-      expect(planId, isNotEmpty);
-    });
+        // Replaces Auto-pack/Add gear rather than sitting alongside them.
+        expect(find.byIcon(Icons.rotate_90_degrees_cw_outlined), findsOneWidget);
+        expect(find.text('Auto-pack'), findsNothing);
+        expect(planId, isNotEmpty);
+      },
+    );
 
-    testWidgets("every view's turn button drives the same cycle", (
+    testWidgets('tapping rotate cycles through orientations', (
       tester,
     ) async {
       late String planId;
@@ -527,9 +526,7 @@ void main() {
       await tester.tap(find.text('Chuckbox'));
       await tester.pumpAndSettle();
 
-      await tester.tap(
-        find.byIcon(Icons.rotate_90_degrees_cw_outlined).first,
-      );
+      await tester.tap(find.byIcon(Icons.rotate_90_degrees_cw_outlined));
       await tester.pumpAndSettle();
 
       var placement = store.planFor(planId)!.entries.single.placement!;
@@ -537,9 +534,8 @@ void main() {
       expect(placement.height, 45);
       expect(placement.depth, 20);
 
-      // A different view's button continues the same cycle, rather than
-      // doing a plane-specific turn tied to that one view.
-      await tester.tap(find.byIcon(Icons.rotate_90_degrees_cw_outlined).last);
+      // The same button, tapped again, continues the cycle.
+      await tester.tap(find.byIcon(Icons.rotate_90_degrees_cw_outlined));
       await tester.pumpAndSettle();
 
       placement = store.planFor(planId)!.entries.single.placement!;
@@ -593,7 +589,7 @@ void main() {
       expect(placement.height, 10);
     });
 
-    testWidgets('a flat plan offers one turn button, not two', (tester) async {
+    testWidgets('a flat plan offers a rotate button too', (tester) async {
       await seed(tester, () async {
         await store.load();
         final bag = await store.addItem(
@@ -621,6 +617,79 @@ void main() {
         find.byIcon(Icons.rotate_90_degrees_cw_outlined),
         findsOneWidget,
       );
+    });
+
+    testWidgets('the close button deselects and restores the normal bar', (
+      tester,
+    ) async {
+      await seed(tester, () async {
+        await store.load();
+        await campWithChuckbox();
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Camp'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chuckbox'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Auto-pack'), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Auto-pack'), findsOneWidget);
+      expect(find.byIcon(Icons.rotate_90_degrees_cw_outlined), findsNothing);
+    });
+
+    testWidgets('remove takes the selected gear out of the plan', (
+      tester,
+    ) async {
+      late String planId;
+      await seed(tester, () async {
+        await store.load();
+        planId = await campWithChuckbox();
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Camp'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chuckbox'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Remove'));
+      await tester.pumpAndSettle();
+
+      expect(store.planFor(planId)!.entries, isEmpty);
+      // Removing it deselects too, so the normal bar comes back.
+      expect(find.text('Auto-pack'), findsOneWidget);
+    });
+
+    testWidgets('unplace takes the selected gear off the board', (
+      tester,
+    ) async {
+      late String planId;
+      await seed(tester, () async {
+        await store.load();
+        planId = await campWithChuckbox();
+      });
+
+      await tester.pumpWidget(PackPlanApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Camp'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chuckbox'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Unplace'));
+      await tester.pumpAndSettle();
+
+      expect(store.planFor(planId)!.entries.single.placement, isNull);
+      // Still selected, but nothing left to rotate.
+      expect(find.byIcon(Icons.rotate_90_degrees_cw_outlined), findsNothing);
+      expect(find.text('Place'), findsOneWidget);
     });
   });
 

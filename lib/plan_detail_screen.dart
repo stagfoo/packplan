@@ -57,6 +57,11 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
         title: Text(plan.name),
         actions: [
           IconButton(
+            tooltip: 'View dimensions',
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => _showDimensions(context, plan),
+          ),
+          IconButton(
             tooltip: 'Edit plan',
             icon: const Icon(Icons.straighten),
             onPressed: () => _editPlan(plan),
@@ -115,12 +120,9 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                       horizontalPadding,
                       0,
                     ),
-                    // Left out of diagramHeight's budget deliberately - a
-                    // Wrap of four chips can wrap to two lines on a narrow
-                    // screen, and a fixed height budget for it either
-                    // overflows (too small) or wastes space on every wider
-                    // screen (too generous "just in case"). Natural flow
-                    // sidesteps guessing its height at all.
+                    // Left out of diagramHeight's budget deliberately - its
+                    // exact height depends on the chip theme and text scale
+                    // factor, and natural flow sidesteps guessing at it.
                     child: _ViewVisibilityToolbar(
                       plan: plan,
                       store: widget.store,
@@ -258,22 +260,15 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _rotate(ViewAxis axis, bool swapped, String entryId) async {
-    final axes = axesFor(axis, swapped: swapped);
-    final outcome = await widget.store.rotateGear(
-      widget.planId,
-      entryId,
-      rotationPlaneFor(axes.horizontal, axes.vertical),
-    );
+  Future<void> _rotate(String entryId) async {
+    final outcome = await widget.store.rotateGear(widget.planId, entryId);
 
     switch (outcome) {
       case RotateOutcome.rotated:
       case RotateOutcome.notFound:
         break;
       case RotateOutcome.wontFit:
-        _report("It doesn't fit that way round.");
-      case RotateOutcome.noDepth:
-        _report('Give this a depth before turning it that way.');
+        _report('Nothing else it can turn into fits.');
     }
   }
 
@@ -284,6 +279,63 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
           ? 'Everything fits.'
           : "${result.unfitted.length} didn't fit: "
                 '${result.unfitted.map((e) => e.item.name).join(', ')}',
+    );
+  }
+
+  /// The measurements each panel's header used to print - moved here so they
+  /// are a tap away instead of taking up room on every panel all the time.
+  void _showDimensions(BuildContext context, Plan plan) {
+    final unit = UnitScope.of(context);
+    final theme = Theme.of(context);
+
+    String lineFor(ViewAxis axis) {
+      final axes = axesFor(
+        axis,
+        swapped: plan.swappedViews.contains(axis.name),
+      );
+      return '${axis.label}  ·  '
+          '${axes.horizontal.axisLetter} '
+          '${unit.format(containerExtent(plan, axes.horizontal))}'
+          '  ×  '
+          '${axes.vertical.axisLetter} '
+          '${unit.formatWithSymbol(containerExtent(plan, axes.vertical))}';
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${plan.container.name} dimensions'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final axis in plan.isThreeDimensional
+                ? ViewAxis.values
+                : [ViewAxis.front])
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(lineFor(axis)),
+              ),
+            if (plan.heightOverflow > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Open top  ·  +'
+                  '${unit.formatWithSymbol(plan.heightOverflow)}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -432,7 +484,7 @@ class _Diagram extends StatelessWidget {
   final Map<String, Set<PlacementIssue>> issues;
   final String? selectedEntryId;
   final ValueChanged<String?> onSelected;
-  final void Function(ViewAxis axis, bool swapped, String entryId) onRotate;
+  final ValueChanged<String> onRotate;
   final GearStore store;
 
   void _onDragged(
@@ -468,7 +520,7 @@ class _Diagram extends StatelessWidget {
       onSelected: onSelected,
       onDragged: (entryId, delta) => _onDragged(axis, swapped, entryId, delta),
       onDragEnded: store.flush,
-      onRotate: (entryId) => onRotate(axis, swapped, entryId),
+      onRotate: onRotate,
       onSwapAxes: () => store.toggleViewSwap(plan.id, axis.name),
       fixedScale: fixedScale,
     );
@@ -553,6 +605,7 @@ class _ViewVisibilityToolbar extends StatelessWidget {
     };
 
     Widget chip(String name, String label) => FilterChip(
+      visualDensity: VisualDensity.compact,
       label: Text(label),
       selected: visibleNames.contains(name),
       onSelected: visibleNames.length == 1 && visibleNames.contains(name)
@@ -560,15 +613,22 @@ class _ViewVisibilityToolbar extends StatelessWidget {
           : (_) => store.toggleViewVisibility(plan.id, name),
     );
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        chip(ViewAxis.front.name, ViewAxis.front.label),
-        chip(ViewAxis.top.name, ViewAxis.top.label),
-        chip(ViewAxis.side.name, ViewAxis.side.label),
-        chip('3d', '3D'),
-      ],
+    // A horizontal scroller rather than a Wrap - four chips should read as
+    // one row of controls, not wrap to a second line and push the diagram
+    // down by an unpredictable amount.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          chip(ViewAxis.front.name, ViewAxis.front.label),
+          const SizedBox(width: 8),
+          chip(ViewAxis.top.name, ViewAxis.top.label),
+          const SizedBox(width: 8),
+          chip(ViewAxis.side.name, ViewAxis.side.label),
+          const SizedBox(width: 8),
+          chip('3d', '3D'),
+        ],
+      ),
     );
   }
 }

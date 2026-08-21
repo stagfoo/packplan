@@ -62,18 +62,6 @@ PlanAxis axisIntoScreen(PlanAxis horizontal, PlanAxis vertical) => PlanAxis
     .values
     .firstWhere((axis) => axis != horizontal && axis != vertical);
 
-/// The turn a view's two axes describe, for the rotate button.
-RotationPlane rotationPlaneFor(PlanAxis horizontal, PlanAxis vertical) {
-  final pair = {horizontal, vertical};
-  if (pair.containsAll({PlanAxis.width, PlanAxis.height})) {
-    return RotationPlane.widthHeight;
-  }
-  if (pair.containsAll({PlanAxis.depth, PlanAxis.height})) {
-    return RotationPlane.depthHeight;
-  }
-  return RotationPlane.widthDepth;
-}
-
 /// How far the container reaches along [axis].
 double containerExtent(Plan plan, PlanAxis axis) => switch (axis) {
   PlanAxis.width => plan.container.width,
@@ -566,8 +554,6 @@ class _ContainerViewState extends State<ContainerView> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final axes = axesFor(widget.axis, swapped: widget.swapped);
-    final unit = UnitScope.of(context);
 
     // Only placed gear can be turned — there is nothing on the diagram to turn
     // otherwise.
@@ -594,17 +580,15 @@ class _ContainerViewState extends State<ContainerView> {
               child: Row(
                 children: [
                   Expanded(
+                    // Just the name - the actual dimensions are one tap away
+                    // on the info icon in the app bar, rather than printed
+                    // on every panel whether or not anyone is looking.
                     child: Text(
-                      '${widget.axis.label} · '
-                      '${unit.format(containerExtent(widget.plan, axes.horizontal))}'
-                      ' × '
-                      '${unit.formatWithSymbol(containerExtent(widget.plan, axes.vertical))}'
-                      '  (${axes.horizontal.axisLetter} · ${axes.horizontal.label}'
-                      '  ×  ${axes.vertical.axisLetter} · ${axes.vertical.label})',
+                      widget.axis.label,
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -744,9 +728,11 @@ class UnitScope extends InheritedWidget {
   bool updateShouldNotify(UnitScope oldWidget) => oldWidget.unit != unit;
 }
 
-/// Space reserved above each view for its axis label. Enough for two lines, so
-/// a narrow side view whose dimensions wrap does not sit lower than the front.
-const double kViewLabelHeight = 34.0;
+/// Space reserved above each view for its name and swap button. Just the
+/// name now - the dimensions used to print here too, but that made every
+/// panel's header wrap or clip in a narrow grid cell, so they moved behind
+/// the info icon in the app bar instead.
+const double kViewLabelHeight = 30.0;
 
 /// Breathing room around a board, so its outline is not clipped.
 const double kViewPadding = 6.0;

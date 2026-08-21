@@ -158,26 +158,6 @@ void main() {
       expect(axisIntoScreen(PlanAxis.depth, PlanAxis.height), PlanAxis.width);
     });
 
-    test('a view names the turn its two axes describe', () {
-      expect(
-        rotationPlaneFor(PlanAxis.width, PlanAxis.height),
-        RotationPlane.widthHeight,
-      );
-      expect(
-        rotationPlaneFor(PlanAxis.depth, PlanAxis.height),
-        RotationPlane.depthHeight,
-      );
-      expect(
-        rotationPlaneFor(PlanAxis.width, PlanAxis.depth),
-        RotationPlane.widthDepth,
-      );
-      // A swapped view describes the same turn.
-      expect(
-        rotationPlaneFor(PlanAxis.height, PlanAxis.depth),
-        RotationPlane.depthHeight,
-      );
-    });
-
     test('container extents read off the right axis', () {
       final plan = samplePlan(depth: 20);
 
@@ -548,34 +528,31 @@ void main() {
       expect(ended, 0);
     });
 
-    testWidgets('the axis label reports dimensions in the chosen unit', (
-      tester,
-    ) async {
+    testWidgets('the header just names the view - dimensions moved to the '
+        'info icon', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
-          home: UnitScope(
-            unit: MeasurementUnit.millimetres,
-            child: Scaffold(
-              body: SizedBox(
-                width: 300,
-                height: 400,
-                child: ContainerView(
-                  plan: packedSample(),
-                  axis: ViewAxis.front,
-                  issues: const {},
-                  selectedEntryId: null,
-                  onSelected: (_) {},
-                  onDragged: (_, _) {},
-                  onDragEnded: () {},
-                  onRotate: (_) {},
-                ),
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              height: 400,
+              child: ContainerView(
+                plan: packedSample(),
+                axis: ViewAxis.front,
+                issues: const {},
+                selectedEntryId: null,
+                onSelected: (_) {},
+                onDragged: (_, _) {},
+                onDragEnded: () {},
+                onRotate: (_) {},
               ),
             ),
           ),
         ),
       );
 
-      expect(find.textContaining('Front · 300 × 400 mm'), findsOneWidget);
+      expect(find.text('Front'), findsOneWidget);
+      expect(find.textContaining('×'), findsNothing);
     });
   });
 

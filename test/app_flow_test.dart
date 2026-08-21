@@ -7,6 +7,7 @@ import 'package:packplan/main.dart';
 import 'package:packplan/preview_3d.dart';
 import 'package:packplan/repository.dart';
 import 'package:packplan/store.dart';
+import 'package:packplan/units.dart';
 
 /// Stands in for a repository that cannot reach the disk — which is what the
 /// real one does when the platform channel is not ready.
@@ -490,11 +491,14 @@ void main() {
       expect(planId, isNotEmpty);
     });
 
-    testWidgets('the upper view turns width against depth', (tester) async {
+    testWidgets("every view's turn button drives the same cycle", (
+      tester,
+    ) async {
       late String planId;
       await seed(tester, () async {
         await store.load();
-        // Deep enough to take the box turned side-on, unlike the Camp bag.
+        // Deep enough that every orientation of the box fits, so nothing
+        // gets skipped and each tap advances exactly one step.
         final bag = await store.addItem(
           name: 'Trailer',
           width: 90,
@@ -523,19 +527,26 @@ void main() {
       await tester.tap(find.text('Chuckbox'));
       await tester.pumpAndSettle();
 
-      // The upper view is the top view, so its turn swaps width and depth.
       await tester.tap(
         find.byIcon(Icons.rotate_90_degrees_cw_outlined).first,
       );
       await tester.pumpAndSettle();
 
-      final placement = store.planFor(planId)!.entries.single.placement!;
-      expect(placement.width, 20);
-      expect(placement.height, 30);
+      var placement = store.planFor(planId)!.entries.single.placement!;
+      expect(placement.width, 30);
+      expect(placement.height, 45);
+      expect(placement.depth, 20);
+
+      // A different view's button continues the same cycle, rather than
+      // doing a plane-specific turn tied to that one view.
+      await tester.tap(find.byIcon(Icons.rotate_90_degrees_cw_outlined).last);
+      await tester.pumpAndSettle();
+
+      placement = store.planFor(planId)!.entries.single.placement!;
+      expect(placement.width, 30);
+      expect(placement.height, 20);
       expect(placement.depth, 45);
     });
-
-
 
     testWidgets('a turn that cannot fit says so and changes nothing', (
       tester,
@@ -543,24 +554,43 @@ void main() {
       late String planId;
       await seed(tester, () async {
         await store.load();
-        planId = await campWithChuckbox();
+        final bag = await store.addItem(
+          name: 'Shallow',
+          width: 90,
+          height: 20,
+          isContainer: true,
+        );
+        final plan = (await store.addPlan(
+          containerItemId: bag.id,
+          name: 'Shallow',
+        ))!;
+        planId = plan.id;
+        final plank = await store.addItem(
+          name: 'Plank',
+          width: 80,
+          height: 10,
+        );
+        await store.addGear(planId, plank.id);
       });
 
       await tester.pumpWidget(PackPlanApp(store: store));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Camp'));
+      await tester.tap(find.text('Shallow'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Chuckbox'));
-      await tester.pumpAndSettle();
-
-      // The lower view is the side view: the box would need 30 of a 20 depth.
-      await tester.tap(find.byIcon(Icons.rotate_90_degrees_cw_outlined).last);
+      await tester.tap(find.text('Plank'));
       await tester.pumpAndSettle();
 
-      expect(find.text("It doesn't fit that way round."), findsOneWidget);
+      // Standing it up would need 80 of the 20 available.
+      await tester.tap(find.byIcon(Icons.rotate_90_degrees_cw_outlined));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Nothing else it can turn into fits.'),
+        findsOneWidget,
+      );
       final placement = store.planFor(planId)!.entries.single.placement!;
-      expect(placement.width, 45);
-      expect(placement.height, 30);
+      expect(placement.width, 80);
+      expect(placement.height, 10);
     });
 
     testWidgets('a flat plan offers one turn button, not two', (tester) async {
@@ -672,5 +702,37 @@ void main() {
 
       expect(find.byType(Preview3D), findsNothing);
     });
+  });
+
+  group('viewing dimensions', () {
+    testWidgets(
+      'the info icon reports each view\'s dimensions in the chosen unit, '
+      'the panels themselves do not',
+      (tester) async {
+        await seed(tester, () async {
+          await store.load();
+          await makePlan(name: 'Camp', width: 90, height: 50, depth: 20);
+          await store.setUnit(MeasurementUnit.millimetres);
+        });
+
+        await pumpApp(tester);
+        await tester.tap(find.text('Camp'));
+        await tester.pumpAndSettle();
+
+        // The panels only name the view now - no dimensions to wrap or clip.
+        expect(find.textContaining('×'), findsNothing);
+
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.info_outline));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('900'), findsOneWidget);
+        expect(find.textContaining('500 mm'), findsOneWidget);
+
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AlertDialog), findsNothing);
+      },
+    );
   });
 }

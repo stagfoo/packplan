@@ -10,11 +10,8 @@ import 'units.dart';
 enum RotateOutcome {
   rotated,
 
-  /// The container has no room for it that way round.
+  /// No orientation the item can be turned into fits the container.
   wontFit,
-
-  /// Flat gear cannot be stood on the depth the app invented for it.
-  noDepth,
 
   /// The plan or the gear is gone.
   notFound,
@@ -806,18 +803,17 @@ class GearStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Turns placed gear a quarter turn in [plane].
+  /// Turns placed gear to the next orientation it can be turned into —
+  /// cycling through every permutation of its own three lengths (not just
+  /// the two shown in whichever view the button was pressed from), skipping
+  /// straight past any that do not fit the container.
   ///
   /// Manual, so it ignores the gear's "can be turned" setting — that governs
   /// what auto-pack is allowed to do on its own, and this is the user saying
   /// otherwise about one placement. Clashes are allowed here for the same
-  /// reason dragging allows them; only turns that cannot physically fit the
-  /// container are refused.
-  Future<RotateOutcome> rotateGear(
-    String planId,
-    String entryId,
-    RotationPlane plane,
-  ) async {
+  /// reason dragging allows them; only refused when literally nothing in the
+  /// cycle fits.
+  Future<RotateOutcome> rotateGear(String planId, String entryId) async {
     final record = planRecordById(planId);
     final plan = record == null ? null : _resolve(record);
     if (record == null || plan == null) return RotateOutcome.notFound;
@@ -825,49 +821,65 @@ class GearStore extends ChangeNotifier {
     final placement = record.placements[entryId];
     if (placement == null) return RotateOutcome.notFound;
 
-    // Standing flat gear on the depth we invented for it would turn a 1 cm
-    // assumption into a 1 cm-tall item, which is not a real packing choice.
-    if (plane == RotationPlane.depthHeight) {
-      final entry = plan.entryById(entryId);
-      if (entry == null) return RotateOutcome.notFound;
-      if (!entry.item.hasDepth) return RotateOutcome.noDepth;
-    }
+    final entry = plan.entryById(entryId);
+    if (entry == null) return RotateOutcome.notFound;
+
+    final orientations = turnableOrientationsOf(entry.item, placement.depth);
+    final currentIndex = orientations.indexWhere(
+      (o) =>
+          o.$1 == placement.width &&
+          o.$2 == placement.height &&
+          o.$3 == placement.depth,
+    );
+    // The placement should always be one of the item's own permutations, but
+    // fall back to the start of the cycle rather than crashing if it is not.
+    final startIndex = currentIndex < 0 ? 0 : currentIndex;
 
     final margin = wallMarginFor(record.tolerance);
     final depthMargin = plan.isThreeDimensional ? margin : 0.0;
-    final turned = placement.rotated(plane);
 
-    // Refuse a turn the container simply has no room for, rather than leaving
-    // gear sticking out of its own bag. Height gets the same allowance
-    // moveGear does for an open-top container - a turn that only pokes up
-    // through the missing lid is not "no room", it is exactly what the
-    // overflow room is for.
-    if (turned.width > plan.container.width - margin * 2 ||
-        turned.height >
-            plan.container.height + record.heightOverflow - margin * 2 ||
-        turned.depth > plan.workingDepth - depthMargin * 2) {
-      return RotateOutcome.wontFit;
+    // Strictly less than length - stopping one short of wrapping all the way
+    // back to startIndex, or a container with only one fitting orientation
+    // would silently "rotate" into the exact same placement it started at.
+    for (var step = 1; step < orientations.length; step++) {
+      final (width, height, depth) =
+          orientations[(startIndex + step) % orientations.length];
+
+      // Height gets the same allowance moveGear does for an open-top
+      // container - a turn that only pokes up through the missing lid is
+      // not "no room", it is exactly what the overflow room is for.
+      if (width > plan.container.width - margin * 2 ||
+          height > plan.container.height + record.heightOverflow - margin * 2 ||
+          depth > plan.workingDepth - depthMargin * 2) {
+        continue;
+      }
+
+      final settled = Placement(
+        entryId: entryId,
+        width: width,
+        height: height,
+        depth: depth,
+        x: _clamp(placement.x, margin, plan.container.width - margin - width),
+        y: _clamp(
+          placement.y,
+          margin,
+          plan.container.height + record.heightOverflow - margin - height,
+        ),
+        z: _clamp(
+          placement.z,
+          depthMargin,
+          plan.workingDepth - depthMargin - depth,
+        ),
+      );
+
+      _replace(
+        record.copyWith(placements: {...record.placements, entryId: settled}),
+      );
+      await _commit();
+      return RotateOutcome.rotated;
     }
 
-    final settled = turned.copyWith(
-      x: _clamp(turned.x, margin, plan.container.width - margin - turned.width),
-      y: _clamp(
-        turned.y,
-        margin,
-        plan.container.height + record.heightOverflow - margin - turned.height,
-      ),
-      z: _clamp(
-        turned.z,
-        depthMargin,
-        plan.workingDepth - depthMargin - turned.depth,
-      ),
-    );
-
-    _replace(
-      record.copyWith(placements: {...record.placements, entryId: settled}),
-    );
-    await _commit();
-    return RotateOutcome.rotated;
+    return RotateOutcome.wontFit;
   }
 
   double _clamp(double value, double min, double max) {

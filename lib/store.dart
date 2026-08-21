@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -5,6 +7,24 @@ import 'models.dart';
 import 'packer.dart';
 import 'repository.dart';
 import 'units.dart';
+
+/// Schema for a standalone gear library export - independent of
+/// [kSchemaVersion] (the app's own save-file format), so an exported file
+/// keeps working even if the app's internal storage shape changes later.
+const int kLibraryExportVersion = 1;
+
+/// What happened when a library export was brought in.
+class ImportResult {
+  const ImportResult({required this.added, required this.skipped});
+
+  /// Items that were not already in the library by name.
+  final int added;
+
+  /// Skipped because something with the same name is already in the
+  /// library - so importing the same file twice does not pile up
+  /// duplicates.
+  final int skipped;
+}
 
 /// What happened when the user asked to turn a piece of gear.
 enum RotateOutcome {
@@ -461,6 +481,56 @@ class GearStore extends ChangeNotifier {
     }
 
     await _commit();
+  }
+
+  /// A JSON snapshot of the gear library alone — not plans or loadouts, just
+  /// the reusable items — worth sharing or keeping around as a starting
+  /// point for a new install rather than re-entering everything by hand.
+  String exportLibraryJson() => const JsonEncoder.withIndent('  ').convert({
+    'kind': 'packplan-library',
+    'version': kLibraryExportVersion,
+    'items': _items.map((item) => item.toJson()).toList(),
+  });
+
+  /// Brings in items from [json] — a file this app (or another install of
+  /// it) produced with [exportLibraryJson]. Every item gets a fresh id
+  /// regardless of what the file says, since two installs could easily have
+  /// picked the same id for different things, and one already in the
+  /// library by name is left alone rather than duplicated.
+  ///
+  /// Throws [FormatException] if [json] is not a library export.
+  Future<ImportResult> importLibraryJson(String json) async {
+    final decoded = jsonDecode(json);
+    if (decoded is! Map<String, dynamic> || decoded['items'] is! List) {
+      throw const FormatException('Not a PackPlan library file.');
+    }
+
+    final existingNames = _items
+        .map((item) => item.name.trim().toLowerCase())
+        .toSet();
+    var added = 0;
+    var skipped = 0;
+
+    for (final raw in decoded['items'] as List) {
+      final rawItem = raw as Map<String, dynamic>;
+      final key = ((rawItem['name'] as String?) ?? '').trim().toLowerCase();
+      if (!existingNames.add(key)) {
+        skipped++;
+        continue;
+      }
+
+      _items.add(
+        GearItem.fromJson({
+          ...rawItem,
+          'id': _uuid.v4(),
+          'colorValue': _nextColor(_items.map((item) => item.colorValue)),
+        }),
+      );
+      added++;
+    }
+
+    if (added > 0) await _commit();
+    return ImportResult(added: added, skipped: skipped);
   }
 
   // ---------------------------------------------------------------- loadouts

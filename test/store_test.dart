@@ -185,6 +185,101 @@ void main() {
     });
   });
 
+  group('library export/import', () {
+    test('exports a JSON snapshot of the library', () async {
+      await store.addItem(name: 'mug', width: 9, height: 9, tags: ['cook']);
+
+      final decoded = jsonDecode(store.exportLibraryJson());
+
+      expect(decoded['kind'], 'packplan-library');
+      expect(decoded['version'], kLibraryExportVersion);
+      expect((decoded['items'] as List).single['name'], 'mug');
+    });
+
+    test('imports items an export produced', () async {
+      await store.addItem(
+        name: 'mug',
+        width: 9,
+        height: 9,
+        depth: 5,
+        tags: ['cook'],
+      );
+      final json = store.exportLibraryJson();
+
+      final other = GearStore(
+        repository: GearRepository(
+          directory: await Directory.systemTemp.createTemp('packplan_import'),
+        ),
+      );
+      await other.load();
+
+      final outcome = await other.importLibraryJson(json);
+
+      expect(outcome.added, 1);
+      expect(outcome.skipped, 0);
+      final imported = other.items.single;
+      expect(imported.name, 'mug');
+      expect(imported.width, 9);
+      expect(imported.depth, 5);
+      expect(imported.tags, ['cook']);
+    });
+
+    test('gives every imported item a fresh id', () async {
+      final original = await store.addItem(name: 'mug', width: 9, height: 9);
+      final json = store.exportLibraryJson();
+
+      final other = GearStore(
+        repository: GearRepository(
+          directory: await Directory.systemTemp.createTemp('packplan_import'),
+        ),
+      );
+      await other.load();
+      await other.importLibraryJson(json);
+
+      expect(other.items.single.id, isNot(original.id));
+    });
+
+    test('skips items already in the library by name', () async {
+      await store.addItem(name: 'mug', width: 9, height: 9);
+      final json = store.exportLibraryJson();
+
+      // Importing its own export back into itself should not duplicate
+      // anything.
+      final outcome = await store.importLibraryJson(json);
+
+      expect(outcome.added, 0);
+      expect(outcome.skipped, 1);
+      expect(store.items, hasLength(1));
+    });
+
+    test('a name match is case-insensitive', () async {
+      await store.addItem(name: 'Mug', width: 9, height: 9);
+      final json = store.exportLibraryJson();
+
+      final other = GearStore(
+        repository: GearRepository(
+          directory: await Directory.systemTemp.createTemp('packplan_import'),
+        ),
+      );
+      await other.load();
+      await other.addItem(name: 'mug', width: 1, height: 1);
+
+      final outcome = await other.importLibraryJson(json);
+
+      expect(outcome.added, 0);
+      expect(outcome.skipped, 1);
+      expect(other.items, hasLength(1));
+    });
+
+    test('rejects a file that is not a library export', () async {
+      expect(
+        store.importLibraryJson('{"not": "a library"}'),
+        throwsFormatException,
+      );
+      expect(store.importLibraryJson('not even json'), throwsFormatException);
+    });
+  });
+
   group('containers', () {
     test('deleting a plan keeps the container and the gear', () async {
       final pack = await makePack();

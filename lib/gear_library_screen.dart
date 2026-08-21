@@ -1,4 +1,10 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'diagram.dart';
 import 'edit_sheets.dart';
@@ -209,7 +215,29 @@ class _GearLibraryScreenState extends State<GearLibraryScreen> {
           ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
         return Scaffold(
-          appBar: AppBar(title: const Text('Gear')),
+          appBar: AppBar(
+            title: const Text('Gear'),
+            actions: [
+              PopupMenuButton<String>(
+                tooltip: 'Export or import your library',
+                onSelected: (value) => switch (value) {
+                  'export' => _exportLibrary(),
+                  'import' => _importLibrary(),
+                  _ => null,
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'export',
+                    child: Text('Export library'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'import',
+                    child: Text('Import library'),
+                  ),
+                ],
+              ),
+            ],
+          ),
           floatingActionButton: FloatingActionButton.extended(
             heroTag: 'fab-gear',
             onPressed: _addItem,
@@ -385,6 +413,59 @@ class _GearLibraryScreenState extends State<GearLibraryScreen> {
     );
 
     if (confirmed ?? false) await widget.store.deleteItem(item.id);
+  }
+
+  Future<void> _exportLibrary() async {
+    if (widget.store.items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your library is empty.')),
+      );
+      return;
+    }
+
+    final json = widget.store.exportLibraryJson();
+    final directory = await getTemporaryDirectory();
+    final file = File('${directory.path}/packplan-library.json');
+    await file.writeAsString(json);
+    if (!mounted) return;
+
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path, mimeType: 'application/json')],
+        subject: 'PackPlan gear library',
+      ),
+    );
+  }
+
+  Future<void> _importLibrary() async {
+    final picked = await FilePicker.pickFile(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    );
+    if (picked == null || !mounted) return;
+    final bytes = await picked.readAsBytes();
+
+    try {
+      final outcome = await widget.store.importLibraryJson(utf8.decode(bytes));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            outcome.skipped == 0
+                ? '${outcome.added} added.'
+                : '${outcome.added} added, ${outcome.skipped} already in '
+                      'your library.',
+          ),
+        ),
+      );
+    } on FormatException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("That doesn't look like a PackPlan library file."),
+        ),
+      );
+    }
   }
 }
 

@@ -838,9 +838,13 @@ class GearStore extends ChangeNotifier {
     final turned = placement.rotated(plane);
 
     // Refuse a turn the container simply has no room for, rather than leaving
-    // gear sticking out of its own bag.
+    // gear sticking out of its own bag. Height gets the same allowance
+    // moveGear does for an open-top container - a turn that only pokes up
+    // through the missing lid is not "no room", it is exactly what the
+    // overflow room is for.
     if (turned.width > plan.container.width - margin * 2 ||
-        turned.height > plan.container.height - margin * 2 ||
+        turned.height >
+            plan.container.height + record.heightOverflow - margin * 2 ||
         turned.depth > plan.workingDepth - depthMargin * 2) {
       return RotateOutcome.wontFit;
     }
@@ -850,7 +854,7 @@ class GearStore extends ChangeNotifier {
       y: _clamp(
         turned.y,
         margin,
-        plan.container.height - margin - turned.height,
+        plan.container.height + record.heightOverflow - margin - turned.height,
       ),
       z: _clamp(
         turned.z,

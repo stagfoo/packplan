@@ -1239,6 +1239,62 @@ void main() {
       expect(after.width, 80, reason: 'the refused turn changed nothing');
     });
 
+    test('a turn that only pokes through an open top is allowed', () async {
+      final bag = await store.addItem(
+        name: 'wagon',
+        width: 90,
+        height: 20,
+        isContainer: true,
+      );
+      final plan = (await store.addPlan(
+        containerItemId: bag.id,
+        heightOverflow: 65,
+      ))!;
+      final plank = await store.addItem(name: 'plank', width: 80, height: 10);
+      await store.addGear(plan.id, plank.id);
+      final entryId = store.planFor(plan.id)!.entries.single.id;
+
+      // Standing it up needs 80 of height - only 20 real, but the 65 of
+      // overflow this open-top wagon allows covers the rest.
+      final outcome = await store.rotateGear(
+        plan.id,
+        entryId,
+        RotationPlane.widthHeight,
+      );
+
+      expect(outcome, RotateOutcome.rotated);
+      final after = store.planFor(plan.id)!.entries.single.placement!;
+      expect(after.width, 10);
+      expect(after.height, 80);
+      expect(after.bottom, lessThanOrEqualTo(85));
+    });
+
+    test('a turn is still refused past the overflow limit', () async {
+      final bag = await store.addItem(
+        name: 'wagon',
+        width: 90,
+        height: 20,
+        isContainer: true,
+      );
+      final plan = (await store.addPlan(
+        containerItemId: bag.id,
+        heightOverflow: 50,
+      ))!;
+      final plank = await store.addItem(name: 'plank', width: 80, height: 10);
+      await store.addGear(plan.id, plank.id);
+      final entryId = store.planFor(plan.id)!.entries.single.id;
+
+      // Standing it up needs 80 of height - only 70 available even counting
+      // the overflow.
+      final outcome = await store.rotateGear(
+        plan.id,
+        entryId,
+        RotationPlane.widthHeight,
+      );
+
+      expect(outcome, RotateOutcome.wontFit);
+    });
+
     test('flat gear cannot be stood on its invented depth', () async {
       final bag = await store.addItem(
         name: 'Camp',

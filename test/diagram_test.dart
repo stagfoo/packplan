@@ -107,18 +107,6 @@ void main() {
       ));
     });
 
-    test('swapping transposes a view', () {
-      // A tall, narrow side view laid flat.
-      expect(axesFor(ViewAxis.side, swapped: true), (
-        horizontal: PlanAxis.height,
-        vertical: PlanAxis.depth,
-      ));
-      expect(axesFor(ViewAxis.top, swapped: true), (
-        horizontal: PlanAxis.depth,
-        vertical: PlanAxis.width,
-      ));
-    });
-
     test('top and side together still cover all three axes', () {
       final shown = <PlanAxis>{
         ...[
@@ -133,23 +121,19 @@ void main() {
 
     test('front starts hidden - top and side are the default pair', () {
       final views = viewsFor(packedSample(depth: 20));
-      expect(views.map((v) => v.view), [ViewAxis.top, ViewAxis.side]);
+      expect(views, [ViewAxis.top, ViewAxis.side]);
     });
 
     test('showing front adds it in front-top-side order', () {
       final views = viewsFor(withHiddenViews(packedSample(depth: 20), {}));
-      expect(views.map((v) => v.view), [
-        ViewAxis.front,
-        ViewAxis.top,
-        ViewAxis.side,
-      ]);
+      expect(views, [ViewAxis.front, ViewAxis.top, ViewAxis.side]);
     });
 
     test('hiding every view but one leaves just that one', () {
       final views = viewsFor(
         withHiddenViews(packedSample(depth: 20), {'front', 'top'}),
       );
-      expect(views.map((v) => v.view), [ViewAxis.side]);
+      expect(views, [ViewAxis.side]);
     });
 
     test('the third axis is the one running into the screen', () {
@@ -596,16 +580,10 @@ void main() {
       );
 
       final boards = [
-        for (final entry in views)
+        for (final view in views)
           ViewGeometry(
-            planWidth: containerExtent(
-              plan,
-              axesFor(entry.view, swapped: entry.swapped).horizontal,
-            ),
-            planHeight: containerExtent(
-              plan,
-              axesFor(entry.view, swapped: entry.swapped).vertical,
-            ),
+            planWidth: containerExtent(plan, axesFor(view).horizontal),
+            planHeight: containerExtent(plan, axesFor(view).vertical),
             size: const Size(100, 100),
             fixedScale: scale,
           ),
@@ -648,8 +626,8 @@ void main() {
       // Two columns, so each cell only gets half the width, minus the gap
       // between them.
       final cellWidth = (available - kViewGap) / 2;
-      for (final entry in views) {
-        final axes = axesFor(entry.view, swapped: entry.swapped);
+      for (final view in views) {
+        final axes = axesFor(view);
         final used =
             containerExtent(plan, axes.horizontal) * scale + kViewPadding * 2;
         expect(used, lessThanOrEqualTo(cellWidth + 1e-9));
@@ -669,46 +647,14 @@ void main() {
         rows: 1,
       );
 
-      for (final entry in views) {
-        final axes = axesFor(entry.view, swapped: entry.swapped);
+      for (final view in views) {
+        final axes = axesFor(view);
         final used =
             containerExtent(plan, axes.vertical) * scale +
             kViewPadding * 2 +
             kViewLabelHeight;
         expect(used, lessThanOrEqualTo(available + 1e-9));
       }
-    });
-
-    test('swapping a view changes what a cell has to fit', () {
-      final plan = tub();
-      // Tight enough that natural's 300-tall side view is height-bound,
-      // but loose enough that laying it flat (105 tall once swapped) frees
-      // it up to be width-bound instead - so the two must land on
-      // different scales.
-      final natural = sharedScaleForGrid(
-        plan,
-        viewsFor(plan),
-        availableWidth: 660,
-        availableHeight: 246,
-        columns: 2,
-        rows: 1,
-      );
-
-      // Laying the side view flat puts its 300 of height across the screen
-      // instead of down it.
-      final laidFlat = sharedScaleForGrid(
-        plan,
-        const [
-          (view: ViewAxis.top, swapped: false),
-          (view: ViewAxis.side, swapped: true),
-        ],
-        availableWidth: 660,
-        availableHeight: 246,
-        columns: 2,
-        rows: 1,
-      );
-
-      expect(laidFlat, isNot(natural));
     });
 
     test('a tall container is limited by the height instead', () {

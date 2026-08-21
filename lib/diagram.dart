@@ -37,24 +37,16 @@ enum ViewAxis {
   final String label;
 }
 
-/// The pair of plan axes a view draws, once any swap is applied.
-///
-/// Swapping transposes the view — the same two axes, turned a quarter turn on
-/// screen. A tall, narrow container makes for a tall, narrow side view, and
-/// laying it flat is the only way it reads on a phone.
-({PlanAxis horizontal, PlanAxis vertical}) axesFor(
-  ViewAxis view, {
-  bool swapped = false,
-}) {
-  final natural = switch (view) {
-    ViewAxis.front => (horizontal: PlanAxis.width, vertical: PlanAxis.height),
-    ViewAxis.top => (horizontal: PlanAxis.width, vertical: PlanAxis.depth),
-    ViewAxis.side => (horizontal: PlanAxis.depth, vertical: PlanAxis.height),
-  };
-  return swapped
-      ? (horizontal: natural.vertical, vertical: natural.horizontal)
-      : natural;
-}
+/// The pair of plan axes a view draws.
+({PlanAxis horizontal, PlanAxis vertical}) axesFor(ViewAxis view) =>
+    switch (view) {
+      ViewAxis.front => (
+        horizontal: PlanAxis.width,
+        vertical: PlanAxis.height,
+      ),
+      ViewAxis.top => (horizontal: PlanAxis.width, vertical: PlanAxis.depth),
+      ViewAxis.side => (horizontal: PlanAxis.depth, vertical: PlanAxis.height),
+    };
 
 /// The axis running into the screen for a view showing [horizontal] and
 /// [vertical] — what decides which gear is drawn in front of which.
@@ -225,7 +217,6 @@ class ContainerViewPainter extends CustomPainter {
     required this.toleranceColor,
     required this.hiddenConflictColor,
     this.fixedScale,
-    this.swapped = false,
   });
 
   final Plan plan;
@@ -246,11 +237,7 @@ class ContainerViewPainter extends CustomPainter {
   /// Set when this view is drawn with others and they must agree.
   final double? fixedScale;
 
-  /// Whether this view is transposed — the same axes, a quarter turn on screen.
-  final bool swapped;
-
-  ({PlanAxis horizontal, PlanAxis vertical}) get axes =>
-      axesFor(axis, swapped: swapped);
+  ({PlanAxis horizontal, PlanAxis vertical}) get axes => axesFor(axis);
 
   bool get _flipVertical => axes.vertical == PlanAxis.height;
 
@@ -292,9 +279,7 @@ class ContainerViewPainter extends CustomPainter {
   /// Draws the container's own edge — a plain closed box, unless this view
   /// shows height with room to overflow above it (an open-top wagon or
   /// crate), in which case the top edge is left open and the real rim is
-  /// marked with a dashed line instead. Only handled for the vertical axis
-  /// — a swapped view showing height running sideways falls back to a
-  /// normal closed box, since there is no sensible "open side" to draw.
+  /// marked with a dashed line instead.
   void _paintOutline(
     Canvas canvas,
     ViewGeometry geometry,
@@ -513,8 +498,6 @@ class ContainerView extends StatefulWidget {
     required this.onDragEnded,
     required this.onRotate,
     this.fixedScale,
-    this.swapped = false,
-    this.onSwapAxes,
   });
 
   final Plan plan;
@@ -537,12 +520,6 @@ class ContainerView extends StatefulWidget {
   /// Draw at this many pixels per centimetre instead of fitting to the space,
   /// so the views drawn alongside this one agree with it.
   final double? fixedScale;
-
-  /// Whether this view is transposed.
-  final bool swapped;
-
-  /// Lays this view on its side. Null hides the control.
-  final VoidCallback? onSwapAxes;
 
   @override
   State<ContainerView> createState() => _ContainerViewState();
@@ -576,39 +553,18 @@ class _ContainerViewState extends State<ContainerView> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
+              width: double.infinity,
               height: labelHeight,
-              child: Row(
-                children: [
-                  Expanded(
-                    // Just the name - the actual dimensions are one tap away
-                    // on the info icon in the app bar, rather than printed
-                    // on every panel whether or not anyone is looking.
-                    child: Text(
-                      widget.axis.label,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (widget.onSwapAxes != null)
-                    IconButton(
-                      tooltip:
-                          'Lay the ${widget.axis.label.toLowerCase()} view '
-                          'on its side',
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 28,
-                      ),
-                      iconSize: 18,
-                      isSelected: widget.swapped,
-                      icon: const Icon(Icons.swap_horiz),
-                      onPressed: widget.onSwapAxes,
-                    ),
-                ],
+              // Just the name - the actual dimensions are one tap away on
+              // the info icon in the app bar, rather than printed on every
+              // panel whether or not anyone is looking.
+              child: Text(
+                widget.axis.label,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             Expanded(
@@ -630,7 +586,6 @@ class _ContainerViewState extends State<ContainerView> {
                     toleranceColor: theme.colorScheme.outlineVariant,
                     hiddenConflictColor: theme.colorScheme.tertiary,
                     fixedScale: widget.fixedScale,
-                    swapped: widget.swapped,
                   );
 
                   final board = GestureDetector(
@@ -751,7 +706,7 @@ const double kViewGap = 12.0;
 /// the budget every other cell gets.
 double sharedScaleForGrid(
   Plan plan,
-  List<({ViewAxis view, bool swapped})> views, {
+  List<ViewAxis> views, {
   required double availableWidth,
   required double availableHeight,
   required int columns,
@@ -761,8 +716,8 @@ double sharedScaleForGrid(
 
   var widest = 0.0;
   var tallest = 0.0;
-  for (final entry in views) {
-    final axes = axesFor(entry.view, swapped: entry.swapped);
+  for (final view in views) {
+    final axes = axesFor(view);
     widest = math.max(widest, packingExtent(plan, axes.horizontal));
     tallest = math.max(tallest, packingExtent(plan, axes.vertical));
   }

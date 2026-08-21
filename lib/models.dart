@@ -276,7 +276,6 @@ class PlanRecord {
     this.heightOverflow = 0,
     this.items = const [],
     this.placements = const {},
-    this.swappedViews = const {},
     this.hiddenViews = const {'front', '3d'},
   });
 
@@ -307,11 +306,6 @@ class PlanRecord {
   /// Placements by *entry* id. An entry with no placement is not packed.
   final Map<String, Placement> placements;
 
-  /// Views the user has turned on their side, by view name. A tall, narrow
-  /// container makes for a tall, narrow side view; swapping its axes lays it
-  /// flat so it reads on a phone.
-  final Set<String> swappedViews;
-
   /// Views the user has hidden, by name - 'front'/'top'/'side' (a
   /// [ViewAxis]) or '3d' (the orbit preview, not a real axis-based view but
   /// shown/hidden the same way). Defaults to `{'front', '3d'}` - Top + Side
@@ -326,7 +320,6 @@ class PlanRecord {
     double? heightOverflow,
     List<PlanItem>? items,
     Map<String, Placement>? placements,
-    Set<String>? swappedViews,
     Set<String>? hiddenViews,
   }) => PlanRecord(
     id: id,
@@ -336,7 +329,6 @@ class PlanRecord {
     heightOverflow: heightOverflow ?? this.heightOverflow,
     items: items ?? this.items,
     placements: placements ?? this.placements,
-    swappedViews: swappedViews ?? this.swappedViews,
     hiddenViews: hiddenViews ?? this.hiddenViews,
   );
 
@@ -350,7 +342,6 @@ class PlanRecord {
     'placements': placements.map(
       (entryId, placement) => MapEntry(entryId, placement.toJson()),
     ),
-    'swappedViews': swappedViews.toList(),
     'hiddenViews': hiddenViews.toList(),
   };
 
@@ -371,9 +362,6 @@ class PlanRecord {
           Placement.fromJson(placement as Map<String, dynamic>),
         ),
       ),
-      swappedViews: (json['swappedViews'] as List<dynamic>? ?? [])
-          .map((view) => view as String)
-          .toSet(),
       // No key at all means this plan predates hiddenViews - fall back to
       // the same default as a brand-new plan (Front and 3D hidden), not an
       // empty set, so existing plans keep showing exactly what they show
@@ -479,7 +467,6 @@ class Plan {
   String get name => record.name;
   double get tolerance => record.tolerance;
   double get heightOverflow => record.heightOverflow;
-  Set<String> get swappedViews => record.swappedViews;
   Set<String> get hiddenViews => record.hiddenViews;
 
   /// The plan is three-dimensional only when the container and at least one

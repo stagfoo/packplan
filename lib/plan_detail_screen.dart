@@ -242,9 +242,8 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
     );
 
     var tallest = 0.0;
-    for (final entry in views) {
-      final axes = axesFor(entry.view, swapped: entry.swapped);
-      final extent = packingExtent(plan, axes.vertical);
+    for (final view in views) {
+      final extent = packingExtent(plan, axesFor(view).vertical);
       if (extent > tallest) tallest = extent;
     }
     // The 3D panel doesn't share the 2D views' linear scale, but in a grid
@@ -289,10 +288,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
     final theme = Theme.of(context);
 
     String lineFor(ViewAxis axis) {
-      final axes = axesFor(
-        axis,
-        swapped: plan.swappedViews.contains(axis.name),
-      );
+      final axes = axesFor(axis);
       return '${axis.label}  ·  '
           '${axes.horizontal.axisLetter} '
           '${unit.format(containerExtent(plan, axes.horizontal))}'
@@ -487,14 +483,9 @@ class _Diagram extends StatelessWidget {
   final ValueChanged<String> onRotate;
   final GearStore store;
 
-  void _onDragged(
-    ViewAxis axis,
-    bool swapped,
-    String entryId,
-    Offset planDelta,
-  ) {
+  void _onDragged(ViewAxis axis, String entryId, Offset planDelta) {
     // A drag moves along whichever two plan axes this view happens to show.
-    final axes = axesFor(axis, swapped: swapped);
+    final axes = axesFor(axis);
     final deltas = <PlanAxis, double>{
       axes.horizontal: planDelta.dx,
       axes.vertical: planDelta.dy,
@@ -510,18 +501,15 @@ class _Diagram extends StatelessWidget {
   }
 
   Widget _view(ViewAxis axis, {double? fixedScale}) {
-    final swapped = plan.swappedViews.contains(axis.name);
     return ContainerView(
       plan: plan,
       axis: axis,
-      swapped: swapped,
       issues: issues,
       selectedEntryId: selectedEntryId,
       onSelected: onSelected,
-      onDragged: (entryId, delta) => _onDragged(axis, swapped, entryId, delta),
+      onDragged: (entryId, delta) => _onDragged(axis, entryId, delta),
       onDragEnded: store.flush,
       onRotate: onRotate,
-      onSwapAxes: () => store.toggleViewSwap(plan.id, axis.name),
       fixedScale: fixedScale,
     );
   }
@@ -554,7 +542,7 @@ class _Diagram extends StatelessWidget {
         );
 
         final cells = <Widget>[
-          for (final entry in views) _view(entry.view, fixedScale: scale),
+          for (final view in views) _view(view, fixedScale: scale),
           if (show3D) Preview3D(plan: plan),
         ];
 
@@ -633,19 +621,16 @@ class _ViewVisibilityToolbar extends StatelessWidget {
   }
 }
 
-/// The views a plan shows, in the order they are stacked.
+/// The views a plan shows, in a fixed Front/Top/Side order.
 ///
 /// All three orthographic views cover a different pair of axes; which ones
 /// are actually on screen is up to [Plan.hiddenViews] (defaults to Top +
 /// Side — between them they already cover all three axes, and the top view
 /// is the one you actually look at when you pack a tub, so Front starts
-/// hidden rather than crowding a phone screen by default). Phones have far
-/// more vertical room than horizontal, so visible views stack rather than
-/// sit side by side.
-List<({ViewAxis view, bool swapped})> viewsFor(Plan plan) => [
+/// hidden rather than crowding a phone screen by default).
+List<ViewAxis> viewsFor(Plan plan) => [
   for (final view in const [ViewAxis.front, ViewAxis.top, ViewAxis.side])
-    if (!plan.hiddenViews.contains(view.name))
-      (view: view, swapped: plan.swappedViews.contains(view.name)),
+    if (!plan.hiddenViews.contains(view.name)) view,
 ];
 
 /// The one-line verdict: how full the container is and what is left over.

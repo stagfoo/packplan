@@ -660,19 +660,6 @@ class GearStore extends ChangeNotifier {
     await _commit();
   }
 
-  /// Lays a view on its side, or puts it back. Purely how the plan is drawn —
-  /// nothing about where the gear sits changes.
-  Future<void> toggleViewSwap(String planId, String viewName) async {
-    final record = planRecordById(planId);
-    if (record == null) return;
-
-    final swapped = {...record.swappedViews};
-    if (!swapped.remove(viewName)) swapped.add(viewName);
-
-    _replace(record.copyWith(swappedViews: swapped));
-    await _commit();
-  }
-
   /// Shows or hides one of the three orthographic views. The caller is
   /// responsible for not hiding the last visible one — this just flips the
   /// flag, since the store has no opinion about how many views a screen
@@ -728,7 +715,6 @@ class GearStore extends ChangeNotifier {
       heightOverflow: record.heightOverflow,
       items: items,
       placements: placements,
-      swappedViews: {...record.swappedViews},
       hiddenViews: {...record.hiddenViews},
     );
 

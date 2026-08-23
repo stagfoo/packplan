@@ -641,9 +641,11 @@ class GearStore extends ChangeNotifier {
       name: name,
       containerItemId: containerItemId,
       tolerance: tolerance,
-      // Not folded into [reshaped] - it only relaxes where gear is allowed
-      // to be dragged, not where the packer places it, so changing it
-      // should never undo a manual layout the way a real reshape does.
+      // Not folded into [reshaped] - existing placements that no longer fit
+      // a smaller overflow allowance get flagged by findPlacementIssues
+      // instead of being silently thrown out, the same as any other
+      // out-of-bounds drag. Only tolerance and the container itself force a
+      // full re-layout.
       heightOverflow: heightOverflow,
     );
 

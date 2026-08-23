@@ -277,7 +277,8 @@ class _GearItemSheetState extends State<GearItemSheet> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Depth is optional. Without it this is treated as flat gear.',
+            'Depth runs front-to-back, not up-down - a basin\'s depth goes '
+            'in height instead. Optional; without it this is flat gear.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),

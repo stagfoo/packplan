@@ -665,6 +665,41 @@ void main() {
     });
   });
 
+  group('adding and auto-packing gear with height overflow', () {
+    test('addGear may use the overflow room', () async {
+      final pack = await makePack(heightOverflow: 15);
+      // 40 real height, plus 15 of overflow allows 55 - too tall to fit
+      // without it.
+      final tall = await store.addItem(name: 'tall', width: 10, height: 50);
+
+      final added = await store.addGear(pack.id, tall.id);
+
+      expect(added, isTrue);
+      final placement = store.planFor(pack.id)!.entries.single.placement!;
+      expect(placement.bottom, lessThanOrEqualTo(55));
+    });
+
+    test('addGear is still refused past the overflow limit', () async {
+      final pack = await makePack(heightOverflow: 5);
+      final tall = await store.addItem(name: 'tall', width: 10, height: 50);
+
+      final added = await store.addGear(pack.id, tall.id);
+
+      expect(added, isFalse);
+      expect(store.planFor(pack.id)!.entries.single.placement, isNull);
+    });
+
+    test('auto-pack may use the overflow room too', () async {
+      final pack = await makePack(heightOverflow: 15);
+      final tall = await store.addItem(name: 'tall', width: 10, height: 50);
+      await store.addGear(pack.id, tall.id);
+
+      final result = await store.autoPack(pack.id);
+
+      expect(result.everythingFits, isTrue);
+    });
+  });
+
   group('auto-pack', () {
     test('reports what did not fit', () async {
       final pack = await makePack();

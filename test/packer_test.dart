@@ -549,14 +549,30 @@ void main() {
   });
 
   group('height overflow', () {
-    test('auto-pack never places gear above the real height', () {
+    test('auto-pack may place gear above the real height', () {
       // Too tall for the real 15 cm wall in either orientation (20 or 25
-      // cm), but would fit well within the 20 cm of overflow the plan
-      // allows for manual dragging only.
+      // cm), but fits within the 20 cm of overflow this open-top container
+      // allows - sticking out the top a little is a normal way to pack it,
+      // not something reserved for a manual drag.
       final plan = planOf(
         width: 30,
         height: 15,
         heightOverflow: 20,
+        items: [gear('a', width: 25, height: 20)],
+      );
+
+      final result = packPlan(plan);
+
+      expect(result.everythingFits, isTrue);
+      final placement = result.placements['a']!;
+      expect(placement.bottom, lessThanOrEqualTo(35));
+    });
+
+    test('still refused past the overflow limit', () {
+      final plan = planOf(
+        width: 30,
+        height: 15,
+        heightOverflow: 3,
         items: [gear('a', width: 25, height: 20)],
       );
 

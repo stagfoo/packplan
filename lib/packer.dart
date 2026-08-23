@@ -82,10 +82,11 @@ class _Bounds {
 double wallMarginFor(double tolerance) => tolerance / 2;
 
 /// [includeHeightOverflow] raises the height limit by [Plan.heightOverflow],
-/// for containers with no lid — an open-top wagon or crate. Only
-/// [findPlacementIssues] passes true: auto-pack always targets the
-/// container's real walls, so gear it places on its own never depends on a
-/// human having dragged something up over the rim first.
+/// for containers with no lid — an open-top wagon or crate, where sticking a
+/// couple of centimetres out the top is a normal, deliberate way to pack it,
+/// not an exceptional one. [toleranceLeavesNoSpace] is the only place that
+/// leaves it out, since that check is about whether the container has any
+/// usable footprint at all.
 _Bounds _boundsFor(Plan plan, {bool includeHeightOverflow = false}) {
   final margin = wallMarginFor(plan.tolerance);
   // A flat plan's depth axis is a fiction, so tolerance must not eat into it.
@@ -114,7 +115,7 @@ _Bounds _boundsFor(Plan plan, {bool includeHeightOverflow = false}) {
 /// would be overkill for a bag of camping gear. It is deterministic, so the
 /// same plan always packs the same way.
 PackResult packPlan(Plan plan) {
-  final bounds = _boundsFor(plan);
+  final bounds = _boundsFor(plan, includeHeightOverflow: true);
   if (bounds.isEmpty) {
     return PackResult(placements: const {}, unfitted: [...plan.entries]);
   }
@@ -161,7 +162,7 @@ PackResult packPlan(Plan plan) {
 /// hand — re-running the whole pack would throw those adjustments away.
 /// Returns null when there is no free spot.
 Placement? findSpotFor(Plan plan, PlanEntry entry) {
-  final bounds = _boundsFor(plan);
+  final bounds = _boundsFor(plan, includeHeightOverflow: true);
   if (bounds.isEmpty) return null;
 
   return _bestPlacement(

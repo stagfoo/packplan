@@ -291,14 +291,15 @@ class PlanRecord {
   /// because it describes how you are packing this time, not the bag itself.
   final double tolerance;
 
-  /// How far gear may be dragged above the container's true height, for
+  /// How far gear may reach above the container's true height, for
   /// containers with no lid to bump into - an open-top wagon or crate.
   /// Lives on the plan rather than the container for the same reason as
   /// [tolerance]: it describes how you are packing this time, not a fact
   /// about the bag. Zero means gear is held to the container's real height,
-  /// same as before this field existed. Auto-pack ignores it - it only
-  /// relaxes the manual drag/issue-checking bounds, never where the packer
-  /// itself chooses to place something.
+  /// same as before this field existed. Otherwise it applies everywhere
+  /// height is checked - auto-pack and "add gear" may use the room too, not
+  /// only a manual drag, since sticking a couple of centimetres out the top
+  /// is a normal way to pack an open container, not a special case.
   final double heightOverflow;
 
   final List<PlanItem> items;

@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'diagram.dart';
 import 'models.dart';
+import 'preview_3d.dart' show Vec3, rotate3;
 import 'units.dart';
 
 /// A dimension field that reads and writes the user's chosen unit while the
@@ -198,6 +201,15 @@ class _GearItemSheetState extends State<GearItemSheet> {
     super.dispose();
   }
 
+  /// The number in [controller] for the axis diagram's proportions, or
+  /// [fallback] while the field is empty or not a valid positive number - the
+  /// diagram is a shape reference, not a live measurement, so it should never
+  /// collapse to nothing just because a field hasn't been typed into yet.
+  double _previewValue(TextEditingController controller, double fallback) {
+    final value = double.tryParse(controller.text.trim());
+    return (value == null || value <= 0) ? fallback : value;
+  }
+
   void _addTag(String raw) {
     final cleaned = normaliseTags([..._tags, raw]);
     setState(() => _tags = cleaned);
@@ -247,20 +259,15 @@ class _GearItemSheetState extends State<GearItemSheet> {
                 (value ?? '').trim().isEmpty ? 'Required' : null,
           ),
           const SizedBox(height: 16),
+          // X/Y/Z reading order left to right, matching the diagram below -
+          // width then depth then height, not the width/height/depth order
+          // those words would suggest.
           Row(
             children: [
               Expanded(
                 child: DimensionField(
                   controller: _width,
-                  label: 'Width (${PlanAxis.width.axisLetter})',
-                  validator: _requiredNumber,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: DimensionField(
-                  controller: _height,
-                  label: 'Height (${PlanAxis.height.axisLetter})',
+                  label: PlanAxis.width.axisLetter,
                   validator: _requiredNumber,
                 ),
               ),
@@ -268,17 +275,34 @@ class _GearItemSheetState extends State<GearItemSheet> {
               Expanded(
                 child: DimensionField(
                   controller: _depth,
-                  label: 'Depth (${PlanAxis.depth.axisLetter})',
+                  label: PlanAxis.depth.axisLetter,
                   hint: 'optional',
                   validator: _optionalNumber,
                 ),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DimensionField(
+                  controller: _height,
+                  label: PlanAxis.height.axisLetter,
+                  validator: _requiredNumber,
+                ),
+              ),
             ],
+          ),
+          const SizedBox(height: 12),
+          AnimatedBuilder(
+            animation: Listenable.merge([_width, _depth, _height]),
+            builder: (context, _) => _AxisPreview(
+              width: _previewValue(_width, 40),
+              depth: _previewValue(_depth, 25),
+              height: _previewValue(_height, 30),
+            ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Depth runs front-to-back, not up-down - a basin\'s depth goes '
-            'in height instead. Optional; without it this is flat gear.',
+            'X is width, Y is depth (front-to-back), Z is height. Depth is '
+            'optional; without it this is flat gear.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -364,6 +388,169 @@ Future<GearItemDraft?> showGearItemSheet(
       child: GearItemSheet(initial: initial, knownTags: knownTags),
     ),
   );
+}
+
+/// A small fixed-angle reference box showing which typed number becomes
+/// which axis - width/depth/height alone reads as three interchangeable
+/// numbers, but seeing them as an actual box's X/Y/Z make it obvious depth
+/// runs along the ground rather than being how deep a basin is.
+///
+/// Not to scale in any absolute sense, and never interactive - it exists to
+/// teach the mapping, not to preview the real item, so a shape reference
+/// with sane fallbacks for empty fields does the job.
+class _AxisPreview extends StatelessWidget {
+  const _AxisPreview({
+    required this.width,
+    required this.depth,
+    required this.height,
+  });
+
+  final double width;
+  final double depth;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      height: 120,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: CustomPaint(
+        size: Size.infinite,
+        painter: _AxisPreviewPainter(
+          width: width,
+          depth: depth,
+          height: height,
+          wireColor: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _AxisPreviewPainter extends CustomPainter {
+  _AxisPreviewPainter({
+    required this.width,
+    required this.depth,
+    required this.height,
+    required this.wireColor,
+  });
+
+  final double width;
+  final double depth;
+  final double height;
+  final Color wireColor;
+
+  // The same 3/4 angle Preview3D starts at, for a consistent visual
+  // language between the two.
+  static const _azimuth = -math.pi / 4;
+  static const _elevation = math.pi / 6;
+
+  static const _axisColors = {
+    'X': Color(0xFFEF5350),
+    'Y': Color(0xFF66BB6A),
+    'Z': Color(0xFF42A5F5),
+  };
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = (width / 2, height / 2, depth / 2);
+    final diagonal = math.sqrt(width * width + height * height + depth * depth);
+    final scale = diagonal <= 0
+        ? 1.0
+        : (math.min(size.width, size.height) * 0.6) / diagonal;
+    final origin = Offset(size.width / 2, size.height / 2 + 6);
+
+    Offset project(Vec3 point) {
+      final relative = (
+        point.$1 - center.$1,
+        point.$2 - center.$2,
+        point.$3 - center.$3,
+      );
+      final rotated = rotate3(relative, _azimuth, _elevation);
+      return origin + Offset(rotated.$1, -rotated.$2) * scale;
+    }
+
+    final corners = [
+      for (final x in [0.0, width])
+        for (final y in [0.0, height])
+          for (final z in [0.0, depth]) (x, y, z),
+    ];
+    const edges = [
+      [0, 1],
+      [0, 2],
+      [0, 4],
+      [3, 1],
+      [3, 2],
+      [3, 7],
+      [5, 1],
+      [5, 4],
+      [5, 7],
+      [6, 2],
+      [6, 4],
+      [6, 7],
+    ];
+    final wirePaint = Paint()
+      ..color = wireColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    for (final edge in edges) {
+      canvas.drawLine(
+        project(corners[edge[0]]),
+        project(corners[edge[1]]),
+        wirePaint,
+      );
+    }
+
+    _axis(canvas, project, (width * 1.3, 0, 0), 'X');
+    _axis(canvas, project, (0, 0, depth * 1.3), 'Y');
+    _axis(canvas, project, (0, height * 1.3, 0), 'Z');
+  }
+
+  /// One labelled arrow from the box's own origin corner out to [tip] -
+  /// longer than the box itself so it reads as a pointer, not another edge.
+  void _axis(
+    Canvas canvas,
+    Offset Function(Vec3) project,
+    Vec3 tip,
+    String label,
+  ) {
+    final color = _axisColors[label]!;
+    final start = project((0, 0, 0));
+    final end = project(tip);
+
+    canvas.drawLine(
+      start,
+      end,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5,
+    );
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainter.paint(canvas, end + const Offset(3, -15));
+  }
+
+  @override
+  bool shouldRepaint(covariant _AxisPreviewPainter oldDelegate) =>
+      oldDelegate.width != width ||
+      oldDelegate.depth != depth ||
+      oldDelegate.height != height;
 }
 
 // ------------------------------------------------------------- custom units

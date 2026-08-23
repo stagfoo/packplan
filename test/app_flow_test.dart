@@ -260,6 +260,18 @@ void main() {
   });
 
   group('marking gear as a container', () {
+    /// The gear sheet's axis diagram makes it taller than the default
+    /// 800x600 test surface comfortably fits alongside the keyboard-safe
+    /// area, so scrolling the Save button into view can land it right on
+    /// the viewport edge. A taller surface sidesteps that pixel-precision
+    /// issue entirely, matching how much room a real phone actually has.
+    Future<void> useTallSurface(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+    }
+
     /// Fills the gear sheet in and saves it.
     Future<void> fillGearSheet(
       WidgetTester tester, {
@@ -269,27 +281,31 @@ void main() {
       bool holdsGear = false,
     }) async {
       await tester.enterText(find.widgetWithText(TextFormField, 'Name'), name);
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Width (X)'),
-        width,
-      );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Height (Z)'),
-        height,
-      );
+      await tester.enterText(find.widgetWithText(TextFormField, 'X'), width);
+      await tester.enterText(find.widgetWithText(TextFormField, 'Z'), height);
 
       if (holdsGear) {
-        await tester.tap(find.widgetWithText(SwitchListTile, 'Holds other gear'));
+        final holdsGearSwitch = find.widgetWithText(
+          SwitchListTile,
+          'Holds other gear',
+        );
+        await tester.ensureVisible(holdsGearSwitch);
+        await tester.pumpAndSettle();
+        await tester.tap(holdsGearSwitch);
         await tester.pump();
       }
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      final saveButton = find.widgetWithText(FilledButton, 'Save');
+      await tester.ensureVisible(saveButton);
+      await tester.pumpAndSettle();
+      await tester.tap(saveButton);
       await tester.pumpAndSettle();
     }
 
     testWidgets('the switch reaches the library when creating gear', (
       tester,
     ) async {
+      await useTallSurface(tester);
       await seed(tester, () async => store.load());
 
       await pumpApp(tester);
@@ -314,6 +330,7 @@ void main() {
     });
 
     testWidgets('gear left alone does not become a container', (tester) async {
+      await useTallSurface(tester);
       await seed(tester, () async => store.load());
 
       await pumpApp(tester);
@@ -330,6 +347,7 @@ void main() {
     });
 
     testWidgets('the switch survives reopening the sheet', (tester) async {
+      await useTallSurface(tester);
       await seed(tester, () async {
         await store.load();
         await store.addItem(
@@ -348,18 +366,24 @@ void main() {
       await tester.pumpAndSettle();
 
       // It must come back on, and stay on through a save that touches nothing.
-      final switchTile = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Holds other gear'),
+      final holdsGearSwitch = find.widgetWithText(
+        SwitchListTile,
+        'Holds other gear',
       );
+      final switchTile = tester.widget<SwitchListTile>(holdsGearSwitch);
       expect(switchTile.value, isTrue);
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      final saveButton = find.widgetWithText(FilledButton, 'Save');
+      await tester.ensureVisible(saveButton);
+      await tester.pumpAndSettle();
+      await tester.tap(saveButton);
       await tester.pumpAndSettle();
 
       expect(store.items.single.isContainer, isTrue);
     });
 
     testWidgets('the switch can be turned off again', (tester) async {
+      await useTallSurface(tester);
       await seed(tester, () async {
         await store.load();
         await store.addItem(
@@ -377,15 +401,26 @@ void main() {
       await tester.tap(find.text('dry bag'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(SwitchListTile, 'Holds other gear'));
+      final holdsGearSwitch = find.widgetWithText(
+        SwitchListTile,
+        'Holds other gear',
+      );
+      await tester.ensureVisible(holdsGearSwitch);
+      await tester.pumpAndSettle();
+      await tester.tap(holdsGearSwitch);
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+
+      final saveButton = find.widgetWithText(FilledButton, 'Save');
+      await tester.ensureVisible(saveButton);
+      await tester.pumpAndSettle();
+      await tester.tap(saveButton);
       await tester.pumpAndSettle();
 
       expect(store.items.single.isContainer, isFalse);
     });
 
     testWidgets('a container can then be planned around', (tester) async {
+      await useTallSurface(tester);
       await seed(tester, () async => store.load());
 
       await pumpApp(tester);

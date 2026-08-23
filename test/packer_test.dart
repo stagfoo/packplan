@@ -12,7 +12,8 @@ void expectNoOverlaps(PackResult result, {double clearance = 0}) {
       expect(
         placements[i].overlaps(placements[j], clearance: clearance),
         isFalse,
-        reason: '${placements[i].entryId} clashes with ${placements[j].entryId}',
+        reason:
+            '${placements[i].entryId} clashes with ${placements[j].entryId}',
       );
     }
   }
@@ -568,7 +569,11 @@ void main() {
       expect(placement.bottom, lessThanOrEqualTo(35));
     });
 
-    test('still refused past the overflow limit', () {
+    test('is still placed, but flagged, past the overflow limit', () {
+      // Needs 20 of height; only 18 available even counting the overflow.
+      // Rather than leaving it out of the container entirely, it still gets
+      // a spot - just one that pokes up further than the 3 cm the plan
+      // actually allows for.
       final plan = planOf(
         width: 30,
         height: 15,
@@ -578,8 +583,10 @@ void main() {
 
       final result = packPlan(plan);
 
+      expect(result.unfitted, isEmpty);
+      expect(result.overflowing.single.id, 'a');
       expect(result.everythingFits, isFalse);
-      expect(result.unfitted.single.id, 'a');
+      expect(result.placements['a'], isNotNull);
     });
   });
 

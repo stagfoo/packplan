@@ -316,10 +316,7 @@ void main() {
       );
 
       expect(await store.addGear(pack.id, pouch.id), isTrue);
-      expect(
-        store.planFor(pack.id)!.entries.single.item.name,
-        'pouch',
-      );
+      expect(store.planFor(pack.id)!.entries.single.item.name, 'pouch');
     });
 
     test('shrinking the container re-packs every plan using it', () async {
@@ -339,10 +336,7 @@ void main() {
         isContainer: true,
       );
 
-      expect(
-        store.planFor(pack.id)!.unpacked.map((e) => e.item.name),
-        ['mat'],
-      );
+      expect(store.planFor(pack.id)!.unpacked.map((e) => e.item.name), ['mat']);
     });
 
     test('swapping the container re-packs into the new one', () async {
@@ -490,10 +484,10 @@ void main() {
       final unfitted = await store.applyLoadout(pack.id, loadout.id);
 
       expect(unfitted, isEmpty);
-      expect(
-        store.planFor(pack.id)!.entries.map((e) => e.item.name),
-        ['mug', 'stove'],
-      );
+      expect(store.planFor(pack.id)!.entries.map((e) => e.item.name), [
+        'mug',
+        'stove',
+      ]);
     });
 
     test('reports gear that found no room', () async {
@@ -535,10 +529,7 @@ void main() {
       await store.addGear(pack.id, mug.id);
       await store.addGear(pack.id, mug.id);
 
-      final loadout = await store.savePlanAsLoadout(
-        pack.id,
-        name: 'my kit',
-      );
+      final loadout = await store.savePlanAsLoadout(pack.id, name: 'my kit');
 
       // Two entries of the same item means "pack two of these".
       expect(loadout.itemIds, [mug.id, mug.id]);
@@ -679,15 +670,21 @@ void main() {
       expect(placement.bottom, lessThanOrEqualTo(55));
     });
 
-    test('addGear is still refused past the overflow limit', () async {
-      final pack = await makePack(heightOverflow: 5);
-      final tall = await store.addItem(name: 'tall', width: 10, height: 50);
+    test(
+      'addGear still places gear that pokes up past the overflow limit',
+      () async {
+        final pack = await makePack(heightOverflow: 5);
+        final tall = await store.addItem(name: 'tall', width: 10, height: 50);
 
-      final added = await store.addGear(pack.id, tall.id);
+        final added = await store.addGear(pack.id, tall.id);
 
-      expect(added, isFalse);
-      expect(store.planFor(pack.id)!.entries.single.placement, isNull);
-    });
+        // 40 real height + 5 of overflow is 45 - not left out of the
+        // container entirely just because it needs more than that.
+        expect(added, isTrue);
+        final placement = store.planFor(pack.id)!.entries.single.placement!;
+        expect(placement.bottom, greaterThan(45));
+      },
+    );
 
     test('auto-pack may use the overflow room too', () async {
       final pack = await makePack(heightOverflow: 15);
@@ -804,10 +801,7 @@ void main() {
       await store.flush();
 
       final reloaded = await reload();
-      expect(
-        reloaded.planFor(pack.id)!.entries.single.placement!.x,
-        10,
-      );
+      expect(reloaded.planFor(pack.id)!.entries.single.placement!.x, 10);
     });
 
     test('a corrupt file does not stop the app starting', () async {
@@ -1001,25 +995,27 @@ void main() {
       expect(store.unit.format(40), '2');
     });
 
-    test('deleting the source gear freezes the unit at its last length',
-        () async {
-      final notebook = await store.addItem(
-        name: 'notebook',
-        width: 9,
-        height: 21,
-      );
-      final unit = await store.addCustomUnitFromItem(
-        notebook.id,
-        axis: GearAxis.height,
-      );
-      await store.setUnitId(unit!.id);
+    test(
+      'deleting the source gear freezes the unit at its last length',
+      () async {
+        final notebook = await store.addItem(
+          name: 'notebook',
+          width: 9,
+          height: 21,
+        );
+        final unit = await store.addCustomUnitFromItem(
+          notebook.id,
+          axis: GearAxis.height,
+        );
+        await store.setUnitId(unit!.id);
 
-      await store.deleteItem(notebook.id);
+        await store.deleteItem(notebook.id);
 
-      // The unit survives rather than vanishing mid-measurement.
-      expect(store.unit.centimetresPerUnit, 21);
-      expect(store.customUnits, hasLength(1));
-    });
+        // The unit survives rather than vanishing mid-measurement.
+        expect(store.unit.centimetresPerUnit, 21);
+        expect(store.customUnits, hasLength(1));
+      },
+    );
 
     test('gear with no depth cannot be a depth unit', () async {
       final map = await store.addItem(name: 'map', width: 20, height: 14);
@@ -1302,27 +1298,24 @@ void main() {
       expect(dimsOf(it.planId, it.entryId), (30.0, 45.0, 20.0));
     });
 
-    test(
-      'a turn skips orientations the container cannot fit, cycling only '
-      'through the rest',
-      () async {
-        // The screenshot's bag is only 20 cm deep - too shallow for any
-        // orientation that stands the box up on its 30 or 45 cm side, so
-        // repeated turns can only ever toggle between the two that keep its
-        // 20 cm side as the depth.
-        final it = await chuckboxInCamp();
+    test('a turn skips orientations the container cannot fit, cycling only '
+        'through the rest', () async {
+      // The screenshot's bag is only 20 cm deep - too shallow for any
+      // orientation that stands the box up on its 30 or 45 cm side, so
+      // repeated turns can only ever toggle between the two that keep its
+      // 20 cm side as the depth.
+      final it = await chuckboxInCamp();
 
-        await store.rotateGear(it.planId, it.entryId);
-        expect(dimsOf(it.planId, it.entryId), (30.0, 45.0, 20.0));
+      await store.rotateGear(it.planId, it.entryId);
+      expect(dimsOf(it.planId, it.entryId), (30.0, 45.0, 20.0));
 
-        await store.rotateGear(it.planId, it.entryId);
-        expect(
-          dimsOf(it.planId, it.entryId),
-          (45.0, 30.0, 20.0),
-          reason: 'back to the start - nothing deeper fits this bag',
-        );
-      },
-    );
+      await store.rotateGear(it.planId, it.entryId);
+      expect(dimsOf(it.planId, it.entryId), (
+        45.0,
+        30.0,
+        20.0,
+      ), reason: 'back to the start - nothing deeper fits this bag');
+    });
 
     test(
       'turning repeatedly visits every orientation and returns to the start',
@@ -1386,10 +1379,7 @@ void main() {
       await store.addGear(plan.id, die.id);
       final entryId = store.planFor(plan.id)!.entries.single.id;
 
-      expect(
-        await store.rotateGear(plan.id, entryId),
-        RotateOutcome.wontFit,
-      );
+      expect(await store.rotateGear(plan.id, entryId), RotateOutcome.wontFit);
     });
 
     test('a turn that only pokes through an open top is allowed', () async {
@@ -1454,10 +1444,7 @@ void main() {
       final entryId = store.planFor(plan.id)!.entries.single.id;
 
       // Real measurements, so this is fine.
-      expect(
-        await store.rotateGear(plan.id, entryId),
-        RotateOutcome.rotated,
-      );
+      expect(await store.rotateGear(plan.id, entryId), RotateOutcome.rotated);
       final after = store.planFor(plan.id)!.entries.single.placement!;
       expect(after.width, 14);
       expect(after.height, 20);
@@ -1487,10 +1474,7 @@ void main() {
 
       // That switch governs auto-pack; this is the user saying otherwise about
       // one placement.
-      expect(
-        await store.rotateGear(plan.id, entryId),
-        RotateOutcome.rotated,
-      );
+      expect(await store.rotateGear(plan.id, entryId), RotateOutcome.rotated);
       expect(store.planFor(plan.id)!.entries.single.placement!.height, 20);
     });
 
@@ -1574,17 +1558,17 @@ void main() {
         depth: 40,
         isContainer: true,
       );
-      return (await store.addPlan(
-        containerItemId: bag.id,
-        name: 'Trolley',
-      ))!;
+      return (await store.addPlan(containerItemId: bag.id, name: 'Trolley'))!;
     }
 
-    test('front and 3D start hidden - top and side are the default pair', () async {
-      final plan = await trolley();
+    test(
+      'front and 3D start hidden - top and side are the default pair',
+      () async {
+        final plan = await trolley();
 
-      expect(store.planRecordById(plan.id)!.hiddenViews, {'front', '3d'});
-    });
+        expect(store.planRecordById(plan.id)!.hiddenViews, {'front', '3d'});
+      },
+    );
 
     test('hiding is remembered per view', () async {
       final plan = await trolley();
@@ -1643,7 +1627,11 @@ void main() {
 
       final reloaded = await reload();
 
-      expect(reloaded.planRecordById(plan.id)!.hiddenViews, {'front', '3d', 'side'});
+      expect(reloaded.planRecordById(plan.id)!.hiddenViews, {
+        'front',
+        '3d',
+        'side',
+      });
     });
 
     test('a duplicated plan keeps which views are hidden', () async {
@@ -1652,7 +1640,11 @@ void main() {
 
       final copy = await store.duplicatePlan(plan.id);
 
-      expect(store.planRecordById(copy!.id)!.hiddenViews, {'front', '3d', 'side'});
+      expect(store.planRecordById(copy!.id)!.hiddenViews, {
+        'front',
+        '3d',
+        'side',
+      });
     });
   });
 }

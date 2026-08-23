@@ -283,12 +283,21 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
 
   Future<void> _autoPack(Plan plan) async {
     final result = await widget.store.autoPack(plan.id);
-    _report(
-      result.everythingFits
-          ? 'Everything fits.'
-          : "${result.unfitted.length} didn't fit: "
-                '${result.unfitted.map((e) => e.item.name).join(', ')}',
-    );
+
+    if (result.everythingFits) {
+      _report('Everything fits.');
+      return;
+    }
+
+    final messages = [
+      if (result.unfitted.isNotEmpty)
+        "${result.unfitted.length} didn't fit: "
+            '${result.unfitted.map((e) => e.item.name).join(', ')}.',
+      if (result.overflowing.isNotEmpty)
+        '${result.overflowing.length} sticking out the top: '
+            '${result.overflowing.map((e) => e.item.name).join(', ')}.',
+    ];
+    _report(messages.join(' '));
   }
 
   /// The measurements each panel's header used to print - moved here so they
@@ -315,9 +324,8 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            for (final axis in plan.isThreeDimensional
-                ? ViewAxis.values
-                : [ViewAxis.front])
+            for (final axis
+                in plan.isThreeDimensional ? ViewAxis.values : [ViewAxis.front])
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Text(lineFor(axis)),

@@ -9,15 +9,29 @@ const double _epsilon = 1e-9;
 
 /// The outcome of an auto-pack: where everything went, and what was left over.
 class PackResult {
-  const PackResult({required this.placements, required this.unfitted});
+  const PackResult({
+    required this.placements,
+    required this.unfitted,
+    this.overflowing = const [],
+  });
 
   /// Placements by container entry id.
   final Map<String, Placement> placements;
 
-  /// Entries that could not be placed, in the order they were attempted.
+  /// Entries that could not be placed at all - too wide or too deep for the
+  /// container in every orientation. Rare now that height alone never
+  /// refuses a placement; see [_bestPlacement].
   final List<PlanEntry> unfitted;
 
-  bool get everythingFits => unfitted.isEmpty;
+  /// Placed, but only by exceeding the container's real height (and any
+  /// height overflow it declares) - still sticking out, same as
+  /// [PlacementIssue.outOfBounds] flags it as, just not left out of the
+  /// container entirely the way [unfitted] is.
+  final List<PlanEntry> overflowing;
+
+  /// True only when every entry landed cleanly inside the container's own
+  /// declared bounds - neither left out nor sticking past them.
+  bool get everythingFits => unfitted.isEmpty && overflowing.isEmpty;
 }
 
 /// One way a piece of gear may be turned. [index] is its position in the
@@ -111,6 +125,10 @@ _Bounds _boundsFor(Plan plan, {bool includeHeightOverflow = false}) {
 /// the container in depth layers, which is what makes the front and side views
 /// legible rather than a jumble.
 ///
+/// [PackResult.unfitted] now only happens when an item is too wide or too
+/// deep for the container in every orientation — see [_bestPlacement] for
+/// why height alone never leaves something out.
+///
 /// The heuristic is not optimal — bin packing is NP-hard and an exact solver
 /// would be overkill for a bag of camping gear. It is deterministic, so the
 /// same plan always packs the same way.
@@ -133,6 +151,7 @@ PackResult packPlan(Plan plan) {
   final placed = <Placement>[];
   final placements = <String, Placement>{};
   final unfitted = <PlanEntry>[];
+  final overflowing = <PlanEntry>[];
 
   for (final entry in entries) {
     final placement = _bestPlacement(
@@ -149,18 +168,31 @@ PackResult packPlan(Plan plan) {
       continue;
     }
 
+    // A placement that needed the height-relaxed fallback pass sticks out
+    // past even the container's declared overflow allowance - still placed,
+    // but not a clean fit.
+    if (placement.bottom > bounds.limitY + _epsilon) {
+      overflowing.add(entry);
+    }
+
     placed.add(placement);
     placements[entry.id] = placement;
   }
 
-  return PackResult(placements: placements, unfitted: unfitted);
+  return PackResult(
+    placements: placements,
+    unfitted: unfitted,
+    overflowing: overflowing,
+  );
 }
 
 /// Finds room for one entry without moving anything already placed.
 ///
 /// Used when gear is added to a container the user has already arranged by
 /// hand — re-running the whole pack would throw those adjustments away.
-/// Returns null when there is no free spot.
+/// Returns null only when the item is too wide or too deep in every
+/// orientation; see [_bestPlacement] for why a height-only misfit still gets
+/// a spot.
 Placement? findSpotFor(Plan plan, PlanEntry entry) {
   final bounds = _boundsFor(plan, includeHeightOverflow: true);
   if (bounds.isEmpty) return null;
@@ -193,6 +225,17 @@ Set<_Point> _candidatePoints(
   ],
 };
 
+/// Finds room for [item] among [placed], preferring a spot fully inside
+/// [bounds] but never refusing outright just because nothing fits under the
+/// height limit — real packing means letting something stick out the top
+/// rather than leaving it out of the container entirely. Width and depth
+/// stay hard limits (real walls, not an open lid), so this can still return
+/// null if the item is simply too wide or too deep for the container in
+/// every orientation.
+///
+/// A result that only fits by exceeding the height limit reads as "sticking
+/// out" via [findPlacementIssues] afterwards, so it never looks like a clean
+/// fit — it just isn't silently dropped either.
 Placement? _bestPlacement({
   required String entryId,
   required GearItem item,
@@ -203,6 +246,32 @@ Placement? _bestPlacement({
 }) {
   final orientations = _orientationsFor(item, threeDimensional);
 
+  return _searchPlacement(
+        entryId: entryId,
+        orientations: orientations,
+        placed: placed,
+        bounds: bounds,
+        clearance: clearance,
+        limitHeight: true,
+      ) ??
+      _searchPlacement(
+        entryId: entryId,
+        orientations: orientations,
+        placed: placed,
+        bounds: bounds,
+        clearance: clearance,
+        limitHeight: false,
+      );
+}
+
+Placement? _searchPlacement({
+  required String entryId,
+  required List<_Orientation> orientations,
+  required List<Placement> placed,
+  required _Bounds bounds,
+  required double clearance,
+  required bool limitHeight,
+}) {
   _Point? bestPoint;
   _Orientation? bestOrientation;
 
@@ -213,7 +282,10 @@ Placement? _bestPlacement({
 
     for (final orientation in orientations) {
       if (point.x + orientation.width > bounds.limitX + _epsilon) continue;
-      if (point.y + orientation.height > bounds.limitY + _epsilon) continue;
+      if (limitHeight &&
+          point.y + orientation.height > bounds.limitY + _epsilon) {
+        continue;
+      }
       if (point.z + orientation.depth > bounds.limitZ + _epsilon) continue;
 
       final candidate = Placement(
